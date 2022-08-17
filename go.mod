@@ -1,4 +1,4 @@
-module htgithub.com/alarmfox/tesi
+module github.com/alarmfox/tesi
 
 go 1.18
 
