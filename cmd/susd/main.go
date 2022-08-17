@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -23,10 +22,6 @@ var (
 	addr = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
 )
 
-type Scheduler interface {
-	Schedule(connections <-chan net.Conn)
-}
-
 type RequestType uint8
 
 const (
@@ -36,18 +31,38 @@ const (
 
 type Request struct {
 	Type    RequestType `json:"type"`
-	Payload uint        `json:"payload"`
-	Offset  int         `json:"offset"`
+	Payload int         `json:"payload,omitempty"`
+	Offset  int         `json:"offset,omitempty"`
 }
 
 type Response struct {
-	Error  int  `json:"type"`
-	Result uint `json:"result"`
+	Error  int `json:"error"`
+	Result int `json:"result"`
 }
 
-type Server struct {
-	queue []uint
-	mu    sync.Mutex
+type Buffer struct {
+	data []int
+}
+
+func NewBuffer(size int) *Buffer {
+	return &Buffer{
+		data: make([]int, size),
+	}
+}
+
+func (b *Buffer) Slow(v, pos int) error {
+
+	time.Sleep(100 * time.Millisecond)
+
+	if pos >= len(b.data) {
+		return errOutOfRange
+	}
+	b.data[pos] += v
+	return nil
+}
+
+func (b *Buffer) Fast() int {
+	return b.data[len(b.data)-1]
 }
 
 func main() {
@@ -71,8 +86,8 @@ func run() error {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	connections := make(chan net.Conn)
-
+	requests := make(chan SchedRequest)
+	defer close(requests)
 	g.Go(func() error {
 		for {
 			client, err := conn.Accept()
@@ -83,27 +98,79 @@ func run() error {
 				log.Print(err)
 				continue
 			}
-			connections <- client
+			go func() {
+				<-ctx.Done()
+				client.SetReadDeadline(time.Now())
+			}()
+			buffer := make([]byte, bufferSize)
+
+			n, err := client.Read(buffer)
+
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				client.Close()
+				continue
+			} else if err != nil {
+				log.Printf("error from %s: %v", client.RemoteAddr(), err)
+				client.Close()
+				continue
+			}
+			var request Request
+			if err := json.Unmarshal(buffer[:n], &request); err != nil {
+				log.Printf("error from %s: %v", client.RemoteAddr(), err)
+				client.Close()
+				continue
+			}
+
+			requests <- SchedRequest{
+				Request: request,
+				Client:  client,
+			}
 		}
 
 		return nil
 	})
 
-	// scheduler
-	s := Server{
-		queue: make([]uint, bufferSize),
-	}
+	jobs := make(chan SchedRequest)
 	g.Go(func() error {
-		for connection := range connections {
-			go s.handleConnection(ctx, connection)
-		}
+		fcfs := NewFCFS(requests, jobs)
+		fcfs.Start(ctx)
 		return nil
 	})
 
 	g.Go(func() error {
 		<-ctx.Done()
 		conn.Close()
-		close(connections)
+		close(jobs)
+		return nil
+	})
+
+	g.Go(func() error {
+		buffer := NewBuffer(100)
+		var response Response
+		var err error
+		for job := range jobs {
+			switch job.Request.Type {
+			case SlowRequest:
+				err = buffer.Slow(job.Request.Payload, job.Request.Offset)
+				if errors.Is(err, errOutOfRange) {
+					response.Error = -1
+				} else if err != nil {
+					response.Error = -2
+				}
+			case FastRequest:
+				v := buffer.Fast()
+				response.Error = 0
+				response.Result = v
+
+			}
+			b, err := json.Marshal(response)
+			if err != nil {
+				log.Print(err)
+			} else if _, err := job.Client.Write(b); err != nil {
+				log.Print(err)
+			}
+			job.Client.Close()
+		}
 		return nil
 	})
 
@@ -111,75 +178,34 @@ func run() error {
 
 }
 
-func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
-	buffer := make([]byte, bufferSize)
-
-	n, err := conn.Read(buffer)
-
-	if err != nil {
-		log.Printf("error from %s: %v", conn.RemoteAddr(), err)
-		return
-	}
-	var message Request
-	if err := json.Unmarshal(buffer[:n], &message); err != nil {
-		log.Printf("error from %s: %v", conn.RemoteAddr(), err)
-		return
-	}
-
-	var response Response
-	switch message.Type {
-	case FastRequest:
-		n, err := s.handleFastRequest(ctx)
-
-		if err != nil {
-			response.Error = -1
-		} else {
-			response.Error = 0
-			response.Result = n
-		}
-
-		b, _ := json.Marshal(response)
-		conn.Write(b)
-	case SlowRequest:
-		err := s.handleSlowRequest(ctx, message.Payload, message.Offset)
-
-		if err != nil {
-			response.Error = -2
-		} else {
-			response.Error = 0
-		}
-
-		b, _ := json.Marshal(response)
-		conn.Write(b)
-	default:
-		log.Printf("unsupported request type: %d", message.Type)
-	}
-
-}
-
-func (s *Server) handleFastRequest(ctx context.Context) (uint, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.queue[len(s.queue)-1], nil
-}
-
 var (
-	errTimeout    = errors.New("timeout occurred")
 	errOutOfRange = errors.New("out of range index")
 )
 
-func (s *Server) handleSlowRequest(ctx context.Context, payload uint, offset int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	select {
-	case <-time.After(100 * time.Millisecond):
-		if offset >= len(s.queue) {
-			return errOutOfRange
+type FCFS struct {
+	out chan<- SchedRequest
+	in  <-chan SchedRequest
+}
+
+type SchedRequest struct {
+	Request Request
+	Client  net.Conn
+}
+
+func NewFCFS(in <-chan SchedRequest, out chan<- SchedRequest) *FCFS {
+	return &FCFS{
+		out: out,
+		in:  in,
+	}
+}
+
+func (f *FCFS) Start(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r := <-f.in:
+			f.out <- r
 		}
-		s.queue[offset] = payload
-		return nil
-	case <-ctx.Done():
-		return errTimeout
 	}
 }
