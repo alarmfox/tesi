@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -35,6 +36,7 @@ func main() {
 		arraySize: *arraySize,
 	}
 
+	log.Printf("%+v", c)
 	if err := run(c); err != nil {
 		log.Fatal(err)
 	}
@@ -51,6 +53,8 @@ func run(c Config) error {
 		drr.Input(1)
 		drr.Input(2)
 		scheduler = drr
+	default:
+		return fmt.Errorf("unsupported scheduler: %s", c.scheduler)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM)
@@ -79,6 +83,7 @@ func run(c Config) error {
 		var response pbench.Response
 		var err error
 		for job := range jobs {
+
 			switch job.Request.Type {
 			case pbench.SlowRequest:
 				err = buffer.Slow(job.Request.Payload, job.Request.Offset)
@@ -96,13 +101,10 @@ func run(c Config) error {
 				}
 				response.Result = n
 			}
-			b, err := json.Marshal(response)
+			err := json.NewEncoder(job.Client).Encode(response)
 			if err != nil {
 				log.Print(err)
-			} else if _, err := job.Client.Write(b); err != nil {
-				log.Print(err)
 			}
-			job.Client.Close()
 		}
 		return nil
 	})

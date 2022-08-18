@@ -1,6 +1,7 @@
 package pbench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,7 @@ import (
 )
 
 const (
-	bufferSize = 2048
+	bufferSize = 4096
 )
 
 type RequestType uint8
@@ -61,6 +62,8 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		<-ctx.Done()
 		conn.Close()
 	}()
+
+	pool := NewPool(func() []byte { b := make([]byte, bufferSize); return b })
 	for {
 		client, err := conn.Accept()
 
@@ -71,7 +74,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			continue
 		}
 
-		buffer := make([]byte, bufferSize)
+		buffer := pool.Get()
 
 		n, err := client.Read(buffer)
 
@@ -82,7 +85,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		}
 
 		var request Request
-		if err := json.Unmarshal(buffer[:n], &request); err != nil {
+		if err := json.NewDecoder(bytes.NewReader(buffer[:n])).Decode(&request); err != nil {
 			log.Printf("error from %s: %v", client.RemoteAddr(), err)
 			client.Close()
 			continue
@@ -97,6 +100,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			log.Printf("cannot schedule: %v", err)
 			client.Close()
 		}
+		pool.Put(buffer)
 	}
 	return nil
 }

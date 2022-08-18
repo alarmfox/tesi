@@ -16,21 +16,22 @@ func NewBuffer(size int) *Buffer {
 }
 
 var (
-	ErrOutOfRange = errors.New("out of range index")
+	ErrOutOfRange = errors.New("index out of range")
 )
 
 func (b *Buffer) Slow(v, pos int) error {
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(time.Millisecond)
 
 	if pos >= len(b.data) {
 		return ErrOutOfRange
 	}
-	b.data[pos] += v
+	b.data[pos] = v
 	return nil
 }
 
 func (b *Buffer) Fast(pos int) (int, error) {
+
 	if pos >= len(b.data) {
 		return 0, ErrOutOfRange
 	}
