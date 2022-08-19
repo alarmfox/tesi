@@ -1,2 +1,2 @@
-# tesi
+# Tesi
 Tesi laurea triennale

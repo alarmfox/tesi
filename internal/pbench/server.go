@@ -5,36 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
+	"os"
+	"time"
 )
 
 const (
-	bufferSize = 4096
+	bufferSize = 2048
 )
-
-type RequestType uint8
-
-const (
-	SlowRequest RequestType = iota
-	FastRequest
-)
-
-type Request struct {
-	Type    RequestType `json:"type"`
-	Payload int         `json:"payload,omitempty"`
-	Offset  int         `json:"offset,omitempty"`
-}
-
-type Response struct {
-	Error  int `json:"error"`
-	Result int `json:"result"`
-}
-
-type Job struct {
-	Request Request
-	Client  net.Conn
-}
 
 type Scheduler interface {
 	Start(context.Context)
@@ -43,11 +23,13 @@ type Scheduler interface {
 
 type Server struct {
 	scheduler Scheduler
+	buffers   *Pool[[]byte]
 }
 
 func NewServer(scheduler Scheduler) *Server {
 	return &Server{
 		scheduler: scheduler,
+		buffers:   NewPool(func() []byte { b := make([]byte, bufferSize); return b }),
 	}
 }
 
@@ -63,7 +45,6 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		conn.Close()
 	}()
 
-	pool := NewPool(func() []byte { b := make([]byte, bufferSize); return b })
 	for {
 		client, err := conn.Accept()
 
@@ -73,34 +54,55 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			log.Print(err)
 			continue
 		}
+		go s.handleConnection(ctx, client)
 
-		buffer := pool.Get()
+	}
+	return nil
+}
 
-		n, err := client.Read(buffer)
+func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
-		if err != nil {
-			log.Printf("error from %s: %v", client.RemoteAddr(), err)
-			client.Close()
+	defer conn.Close()
+
+	go func() {
+		<-ctx.Done()
+		conn.SetDeadline(time.Now())
+	}()
+	for {
+
+		buffer := s.buffers.Get()
+		defer s.buffers.Put(buffer)
+
+		n, err := conn.Read(buffer)
+
+		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.EOF) {
+			return
+		} else if err != nil {
+			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
 			continue
 		}
 
 		var request Request
 		if err := json.NewDecoder(bytes.NewReader(buffer[:n])).Decode(&request); err != nil {
-			log.Printf("error from %s: %v", client.RemoteAddr(), err)
-			client.Close()
+			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
+			conn.Close()
 			continue
 		}
 
 		err = s.scheduler.Schedule(Job{
 			Request: request,
-			Client:  client,
+			Response: Response{
+				Info: Info{
+					AcceptedTs: time.Now().UnixMicro(),
+				},
+			},
+			Client: conn,
 		})
 
 		if err != nil {
 			log.Printf("cannot schedule: %v", err)
-			client.Close()
+			continue
 		}
-		pool.Put(buffer)
 	}
-	return nil
+
 }

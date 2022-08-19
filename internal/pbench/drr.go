@@ -38,9 +38,9 @@ func (d *DRR) Schedule(j Job) error {
 	var prio int
 	switch j.Request.Type {
 	case SlowRequest:
-		prio = 1
-	case FastRequest:
 		prio = 2
+	case FastRequest:
+		prio = 3
 	default:
 		return ErrInvalidPriorityValue
 	}

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/alarmfox/tesi/internal/pbench"
 	"golang.org/x/sync/errgroup"
@@ -50,7 +51,7 @@ func run(c Config) error {
 		scheduler = pbench.NewFCFS(jobs)
 	case "drr":
 		drr := pbench.NewDRR(jobs)
-		drr.Input(1)
+		drr.Input(3)
 		drr.Input(2)
 		scheduler = drr
 	default:
@@ -80,28 +81,28 @@ func run(c Config) error {
 
 	g.Go(func() error {
 		buffer := pbench.NewBuffer(c.arraySize)
-		var response pbench.Response
 		var err error
 		for job := range jobs {
-
+			job.Response.Info.RunningTs = time.Now().UnixMicro()
 			switch job.Request.Type {
 			case pbench.SlowRequest:
 				err = buffer.Slow(job.Request.Payload, job.Request.Offset)
 				if err != nil {
-					response.Error = -1
+					job.Response.Error = -1
 				} else {
-					response.Error = 0
+					job.Response.Error = 0
 				}
 			case pbench.FastRequest:
 				n, err := buffer.Fast(job.Request.Offset)
 				if err != nil {
-					response.Error = -1
+					job.Response.Error = -1
 				} else {
-					response.Error = 0
+					job.Response.Error = 0
 				}
-				response.Result = n
+				job.Response.Result = n
 			}
-			err := json.NewEncoder(job.Client).Encode(response)
+			job.Response.Info.FinishedTs = time.Now().UnixMicro()
+			err := json.NewEncoder(job.Client).Encode(job.Response)
 			if err != nil {
 				log.Print(err)
 			}
