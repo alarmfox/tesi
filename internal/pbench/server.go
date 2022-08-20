@@ -5,31 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	bufferSize = 2048
 )
 
-type Scheduler interface {
-	Start(context.Context)
-	Schedule(Job) error
-}
-
 type Server struct {
-	scheduler Scheduler
-	buffers   *Pool[[]byte]
+	highPrio chan<- Job
+	lowPrio  chan<- Job
+	isDRR    bool
+	buffers  *Pool[[]byte]
 }
 
-func NewServer(scheduler Scheduler) *Server {
+func NewServer(highPrio, lowPrio chan<- Job, isDRR bool) *Server {
 	return &Server{
-		scheduler: scheduler,
-		buffers:   NewPool(func() []byte { b := make([]byte, bufferSize); return b }),
+		highPrio: highPrio,
+		lowPrio:  lowPrio,
+		isDRR:    isDRR,
+		buffers:  NewPool(func() []byte { b := make([]byte, bufferSize); return b }),
 	}
 }
 
@@ -40,10 +42,14 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	go func() {
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
 		<-ctx.Done()
 		conn.Close()
-	}()
+		return ctx.Err()
+	})
 
 	for {
 		client, err := conn.Accept()
@@ -54,20 +60,24 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			log.Print(err)
 			continue
 		}
-		go s.handleConnection(ctx, client)
+		g.Go(func() error {
+			g.Go(func() error {
+				<-ctx.Done()
+				client.SetDeadline(time.Now())
+				return nil
+			})
+			s.handleConnection(ctx, client)
+			return nil
+		})
 
 	}
-	return nil
+	return g.Wait()
 }
 
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	defer conn.Close()
 
-	go func() {
-		<-ctx.Done()
-		conn.SetDeadline(time.Now())
-	}()
 	for {
 
 		buffer := s.buffers.Get()
@@ -89,12 +99,10 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			continue
 		}
 
-		err = s.scheduler.Schedule(Job{
+		err = s.schedule(Job{
 			Request: request,
 			Response: Response{
-				Info: Info{
-					AcceptedTs: time.Now().UnixMicro(),
-				},
+				AcceptedTs: time.Now().UnixMicro(),
 			},
 			Client: conn,
 		})
@@ -104,5 +112,19 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			continue
 		}
 	}
+}
 
+func (s *Server) schedule(j Job) error {
+	if s.isDRR {
+		if j.Request.Type == SlowRequest {
+			s.lowPrio <- j
+		} else if j.Request.Type == FastRequest {
+			s.highPrio <- j
+		} else {
+			return fmt.Errorf("unknown request type")
+		}
+	} else {
+		s.highPrio <- j
+	}
+	return nil
 }

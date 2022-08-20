@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -17,15 +18,14 @@ import (
 )
 
 var (
-	addr      = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
-	scheduler = flag.String("scheduler", "fcfs", "Scheduler algorithm to be used")
-	arraySize = flag.Int("array-size", 100, "Size of the buffer to be used")
+	addr       = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
+	scheduler  = flag.String("scheduler", "fcfs", "Scheduler algorithm to be used")
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 )
 
 type Config struct {
 	addr      string
 	scheduler string
-	arraySize int
 }
 
 func main() {
@@ -34,77 +34,91 @@ func main() {
 	c := Config{
 		addr:      *addr,
 		scheduler: *scheduler,
-		arraySize: *arraySize,
 	}
 
 	log.Printf("%+v", c)
-	if err := run(c); err != nil {
+	if err := run(c); err != nil && err != context.Canceled {
 		log.Fatal(err)
 	}
 }
 
 func run(c Config) error {
-	jobs := make(chan pbench.Job)
-	var scheduler pbench.Scheduler
-	switch strings.ToLower(c.scheduler) {
-	case "fcfs":
-		scheduler = pbench.NewFCFS(jobs)
-	case "drr":
-		drr := pbench.NewDRR(jobs)
-		drr.Input(3)
-		drr.Input(2)
-		scheduler = drr
-	default:
-		return fmt.Errorf("unsupported scheduler: %s", c.scheduler)
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+
+		log.Print("starting cpu profile")
+		defer func() {
+			log.Print("stopping cpu profile")
+			pprof.StopCPUProfile()
+		}()
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Kill, syscall.SIGTERM)
-	defer cancel()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		<-ctx.Done()
-		close(jobs)
-		return nil
+		cancel()
+		return ctx.Err()
+	})
+
+	jobs := make(chan pbench.Job)
+	requests := make(chan pbench.Job)
+	lo := make(chan pbench.Job)
+
+	defer close(lo)
+	defer close(requests)
+
+	var isDRR bool
+	g.Go(func() error {
+
+		switch strings.ToLower(c.scheduler) {
+		case "fcfs":
+			isDRR = false
+			scheduler := pbench.NewFCFS(requests, jobs)
+			return scheduler.Start(ctx)
+		case "drr":
+			isDRR = true
+			scheduler, err := pbench.NewDRR(jobs)
+			if err != nil {
+				return err
+			}
+			scheduler.Input(3, requests)
+			scheduler.Input(2, lo)
+			return scheduler.Start(ctx)
+		default:
+			return fmt.Errorf("unsupported scheduler: %s", c.scheduler)
+		}
 	})
 
 	g.Go(func() error {
-		scheduler.Start(ctx)
-		return nil
+		return pbench.NewServer(requests, lo, isDRR).Start(ctx, c.addr)
 	})
 
 	g.Go(func() error {
-		server := pbench.NewServer(scheduler)
-		return server.Start(ctx, c.addr)
-	})
 
-	g.Go(func() error {
-		buffer := pbench.NewBuffer(c.arraySize)
-		var err error
+		buffer := pbench.NewBuffer()
 		for job := range jobs {
-			job.Response.Info.RunningTs = time.Now().UnixMicro()
+			job.Response.RunningTs = time.Now().UnixMicro()
 			switch job.Request.Type {
 			case pbench.SlowRequest:
-				err = buffer.Slow(job.Request.Payload, job.Request.Offset)
-				if err != nil {
-					job.Response.Error = -1
-				} else {
-					job.Response.Error = 0
-				}
+				buffer.Slow()
 			case pbench.FastRequest:
-				n, err := buffer.Fast(job.Request.Offset)
-				if err != nil {
-					job.Response.Error = -1
-				} else {
-					job.Response.Error = 0
-				}
-				job.Response.Result = n
+				buffer.Fast()
 			}
-			job.Response.Info.FinishedTs = time.Now().UnixMicro()
+			job.Response.FinishedTs = time.Now().UnixMicro()
 			err := json.NewEncoder(job.Client).Encode(job.Response)
 			if err != nil {
-				log.Print(err)
+				log.Printf("response: %v", err)
 			}
 		}
 		return nil

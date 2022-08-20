@@ -22,6 +22,10 @@ func (tcp *TCPConn) Write(b []byte) (n int, err error) {
 	return tcp.conn.Write(b)
 }
 
+func (tcp *TCPConn) SetDeadline(t time.Time) (err error) {
+	return tcp.conn.SetDeadline(t)
+}
+
 // connRequest wraps a channel to receive a connection
 // and a channel to receive an error
 type connRequest struct {

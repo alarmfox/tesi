@@ -6,27 +6,22 @@ import (
 
 type FCFS struct {
 	out chan<- Job
-	in  chan Job
+	in  <-chan Job
 }
 
-func NewFCFS(out chan<- Job) *FCFS {
+func NewFCFS(in <-chan Job, out chan<- Job) *FCFS {
 	return &FCFS{
 		out: out,
-		in:  make(chan Job),
+		in:  in,
 	}
 }
 
-func (f *FCFS) Schedule(sr Job) error {
-	f.in <- sr
-	return nil
-}
-
-func (f *FCFS) Start(ctx context.Context) {
-	defer close(f.in)
+func (f *FCFS) Start(ctx context.Context) error {
+	defer close(f.out)
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case r := <-f.in:
 			f.out <- r
 		}
