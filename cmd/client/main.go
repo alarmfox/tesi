@@ -55,7 +55,6 @@ func main() {
 		concurrency:         *concurrency,
 	}
 
-	log.Printf("%+v", c)
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}
