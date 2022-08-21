@@ -21,5 +21,4 @@ func (b *Buffer) Slow() {
 }
 
 func (b *Buffer) Fast() {
-
 }

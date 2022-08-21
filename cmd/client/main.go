@@ -66,6 +66,7 @@ type Result struct {
 	Request       pbench.RequestType
 	ResidenceTime int64
 	WaitingTime   int64
+	RTT           int64
 }
 
 func run(c Config) error {
@@ -124,13 +125,14 @@ func run(c Config) error {
 	pool := pbench.NewPool(func() []byte { b := make([]byte, bufferSize); return b })
 	conns, err := pbench.CreateTcpConnPool(&pbench.TcpConfig{
 		Address:      c.addr,
-		MaxIdleConns: 512,
-		MaxOpenConn:  512,
+		MaxIdleConns: 1024,
+		MaxOpenConn:  3072,
 	})
 
 	if err != nil {
 		return err
 	}
+	defer conns.Close()
 
 	sentRequest := make(chan struct{}, c.nRequest)
 	defer close(sentRequest)
@@ -143,6 +145,7 @@ func run(c Config) error {
 					defer func() {
 						sentRequest <- struct{}{}
 					}()
+					start := time.Now()
 
 					conn, err := conns.Get()
 
@@ -179,6 +182,7 @@ func run(c Config) error {
 						Request:       job.Type,
 						ResidenceTime: response.FinishedTs - response.AcceptedTs,
 						WaitingTime:   response.RunningTs - response.AcceptedTs,
+						RTT:           time.Since(start).Microseconds(),
 					}
 					return nil
 				}()
@@ -203,10 +207,11 @@ func run(c Config) error {
 			case <-ctx.Done():
 				return nil
 			case result := <-results:
-				_, err := fmt.Fprintf(f, "%d;%d;%d\n",
+				_, err := fmt.Fprintf(f, "%d;%d;%d;%d\n",
 					result.Request,
 					result.ResidenceTime,
 					result.WaitingTime,
+					result.RTT,
 				)
 				if err != nil {
 					log.Print(err)

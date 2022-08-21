@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -63,8 +62,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 		g.Go(func() error {
 			g.Go(func() error {
 				<-ctx.Done()
-				client.SetDeadline(time.Now())
-				return nil
+				return client.Close()
 			})
 			s.handleConnection(ctx, client)
 			return nil
@@ -85,7 +83,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 		n, err := conn.Read(buffer)
 
-		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, io.EOF) {
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 			return
 		} else if err != nil {
 			log.Printf("error from %s: %v", conn.RemoteAddr(), err)

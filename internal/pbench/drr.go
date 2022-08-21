@@ -5,7 +5,6 @@ package pbench
 import (
 	"context"
 	"errors"
-	"log"
 	"reflect"
 )
 
@@ -61,6 +60,7 @@ func (d *DRR[T]) Input(prio int, in <-chan T) error {
 		return ErrChannelIsNil
 	}
 	d.flows = append(d.flows, flow[T]{c: in, prio: prio})
+
 	return nil
 }
 
@@ -98,7 +98,6 @@ func (d *DRR[T]) Start(ctx context.Context) error {
 					} else {
 						// This chan triggered the reflect.Select statement
 						// transmit its value and decrement its deficit counter
-						log.Printf("scheduling %d", flow.prio)
 						d.outChan <- value
 						dc = flow.prio - 1
 					}
@@ -121,7 +120,6 @@ func (d *DRR[T]) Start(ctx context.Context) error {
 							d.prepareToUnregister(index)
 							continue flowLoop
 						} else {
-							log.Printf("scheduling %d", flow.prio)
 
 							d.outChan <- val
 						}

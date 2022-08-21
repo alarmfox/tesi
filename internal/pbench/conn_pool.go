@@ -192,6 +192,7 @@ func (p *TcpConnPool) handleConnectionRequest() {
 			}
 		}
 	}
+
 }
 
 const maxQueueLength = 10_000
@@ -217,4 +218,11 @@ func CreateTcpConnPool(cfg *TcpConfig) (*TcpConnPool, error) {
 	go pool.handleConnectionRequest()
 
 	return pool, nil
+}
+
+func (p *TcpConnPool) Close() {
+	close(p.requestChan)
+	for k := range p.idleConns {
+		p.idleConns[k].conn.Close()
+	}
 }
