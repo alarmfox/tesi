@@ -1,0 +1,10 @@
+name: tesi
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.9
+  - numpy
+  - pip
+  - pip:
+    - enlighten
