@@ -4,7 +4,7 @@ from os import listdir
 from os.path import isfile, join, basename
 import argparse
 
-parser = argparse.ArgumentParser(description="Process load testing results")
+parser = argparse.ArgumentParser(description="Benchmark analysis result")
 parser.add_argument(
     "--input-directory", type=str, default="results", help="Input directory"
 )
