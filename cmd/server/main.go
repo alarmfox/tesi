@@ -72,11 +72,11 @@ func run(c Config) error {
 	})
 
 	jobs := make(chan pbench.Job)
-	requests := make(chan pbench.Job)
-	lo := make(chan pbench.Job)
+	hiPrio := make(chan pbench.Job)
+	loPrio := make(chan pbench.Job)
 
-	defer close(lo)
-	defer close(requests)
+	defer close(loPrio)
+	defer close(hiPrio)
 
 	var isDRR bool
 	g.Go(func() error {
@@ -84,7 +84,7 @@ func run(c Config) error {
 		switch strings.ToLower(c.scheduler) {
 		case "fcfs":
 			isDRR = false
-			scheduler := pbench.NewFCFS(requests, jobs)
+			scheduler := pbench.NewFCFS(hiPrio, jobs)
 			return scheduler.Start(ctx)
 		case "drr":
 			isDRR = true
@@ -92,8 +92,8 @@ func run(c Config) error {
 			if err != nil {
 				return err
 			}
-			scheduler.Input(3, requests)
-			scheduler.Input(2, lo)
+			scheduler.Input(3, hiPrio)
+			scheduler.Input(2, loPrio)
 			return scheduler.Start(ctx)
 		default:
 			return fmt.Errorf("unsupported scheduler: %s", c.scheduler)
@@ -101,7 +101,7 @@ func run(c Config) error {
 	})
 
 	g.Go(func() error {
-		return pbench.NewServer(requests, lo, isDRR).Start(ctx, c.addr)
+		return pbench.NewServer(hiPrio, loPrio, isDRR).Start(ctx, c.addr)
 	})
 
 	g.Go(func() error {
@@ -109,7 +109,7 @@ func run(c Config) error {
 		buffer := pbench.NewBuffer()
 		for job := range jobs {
 			job.Response.RunningTs = time.Now().UnixMicro()
-			switch job.Request.Type {
+			switch job.Request {
 			case pbench.SlowRequest:
 				buffer.Slow()
 			case pbench.FastRequest:

@@ -1,10 +1,8 @@
 import argparse
 import subprocess
-import sys
 import numpy as np
 import itertools
 import os
-import enlighten
 
 parser = argparse.ArgumentParser(description="Workload generator")
 parser.add_argument(
@@ -105,23 +103,23 @@ def run(args: argparse.Namespace) -> None:
         n_requests, slow_intervals, fast_intervals, slow_percent
     ))
 
-    pbar = enlighten.Counter(total=len(workloads), desc='Benchmark', unit='ticks')
+    n = 0
+    tot = len(workloads)
     for workload in workloads:
         subprocess.run(
             [
                 args.client_path,
+                f"--server-addr={args.server_address}",
                 f"--n-request={workload[0]}",
                 f"--slow-request-interval={workload[1]}us",
                 f"--fast-request-interval={workload[2]}us",
                 f"--slow-request-percent={workload[3]}",
                 f"--concurrency={args.max_concurrency}",
-                f"--write={args.output_directory}/{args.algorithm}_{workload[2]}_{workload[1]}_{workload[0]}_{workload[3]}_{args.max_concurrency}",
+                f"--write={args.output_directory}/{args.algorithm}_{workload[2]}_{workload[1]}_{workload[0]}_{workload[3]}",
             ],
-            stdout=sys.stdout,
-            stderr=sys.stderr
-
         )
-        pbar.update()
+        n+=1
+        print(n, "/", tot)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,8 @@
 package pbench
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -12,10 +11,6 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
-)
-
-const (
-	bufferSize = 2048
 )
 
 type Server struct {
@@ -30,7 +25,7 @@ func NewServer(highPrio, lowPrio chan<- Job, isDRR bool) *Server {
 		highPrio: highPrio,
 		lowPrio:  lowPrio,
 		isDRR:    isDRR,
-		buffers:  NewPool(func() []byte { b := make([]byte, bufferSize); return b }),
+		buffers:  NewPool(func() []byte { b := make([]byte, 4); return b }),
 	}
 }
 
@@ -88,17 +83,15 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		} else if err != nil {
 			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
 			continue
-		}
-
-		var request Request
-		if err := json.NewDecoder(bytes.NewReader(buffer[:n])).Decode(&request); err != nil {
-			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
-			conn.Close()
+		} else if n != 4 {
+			log.Printf("cannot read requests type")
 			continue
 		}
 
+		r := binary.BigEndian.Uint32(buffer)
+
 		err = s.schedule(Job{
-			Request: request,
+			Request: Request(r),
 			Response: Response{
 				AcceptedTs: time.Now().UnixMicro(),
 			},
@@ -114,9 +107,9 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 func (s *Server) schedule(j Job) error {
 	if s.isDRR {
-		if j.Request.Type == SlowRequest {
+		if j.Request == SlowRequest {
 			s.lowPrio <- j
-		} else if j.Request.Type == FastRequest {
+		} else if j.Request == FastRequest {
 			s.highPrio <- j
 		} else {
 			return fmt.Errorf("unknown request type")

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,10 +16,6 @@ import (
 
 	"github.com/alarmfox/tesi/internal/pbench"
 	"golang.org/x/sync/errgroup"
-)
-
-const (
-	bufferSize = 4096
 )
 
 var (
@@ -62,7 +58,7 @@ func main() {
 }
 
 type Result struct {
-	Request       pbench.RequestType
+	Request       pbench.Request
 	ResidenceTime int64
 	WaitingTime   int64
 	RTT           int64
@@ -89,9 +85,7 @@ func run(c Config) error {
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
-				jobs <- pbench.Request{
-					Type: pbench.SlowRequest,
-				}
+				jobs <- pbench.SlowRequest
 			}
 		}
 		return nil
@@ -109,9 +103,7 @@ func run(c Config) error {
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
-				jobs <- pbench.Request{
-					Type: pbench.FastRequest,
-				}
+				jobs <- pbench.FastRequest
 
 			}
 		}
@@ -121,7 +113,6 @@ func run(c Config) error {
 	results := make(chan Result, c.nRequest)
 	defer close(results)
 
-	pool := pbench.NewPool(func() []byte { b := make([]byte, bufferSize); return b })
 	conns, err := pbench.CreateTcpConnPool(&pbench.TcpConfig{
 		Address:      c.addr,
 		MaxIdleConns: 1024,
@@ -135,6 +126,8 @@ func run(c Config) error {
 
 	sentRequest := make(chan struct{}, c.nRequest)
 	defer close(sentRequest)
+
+	buffers := pbench.NewPool(func() []byte { b := make([]byte, 4); return b })
 
 	for i := 0; i < int(c.concurrency); i++ {
 		g.Go(func() error {
@@ -159,26 +152,23 @@ func run(c Config) error {
 						conn.SetDeadline(time.Now())
 						return nil
 					})
+					buffer := buffers.Get()
+					defer buffers.Put(buffer)
 
-					if err := json.NewEncoder(conn).Encode(job); err != nil {
-						return err
-					}
+					binary.BigEndian.PutUint32(buffer, uint32(job))
 
-					buffer := pool.Get()
-					defer pool.Put(buffer)
-
-					n, err := conn.Read(buffer)
+					_, err = conn.Write(buffer)
 					if err != nil {
 						return err
 					}
 
 					var response pbench.Response
-					if err := json.NewDecoder(bytes.NewReader(buffer[:n])).Decode(&response); err != nil {
+					if err := json.NewDecoder(conn).Decode(&response); err != nil {
 						return err
 					}
 
 					results <- Result{
-						Request:       job.Type,
+						Request:       job,
 						ResidenceTime: response.FinishedTs - response.AcceptedTs,
 						WaitingTime:   response.RunningTs - response.AcceptedTs,
 						RTT:           time.Since(start).Microseconds(),

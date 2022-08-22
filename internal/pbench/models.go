@@ -4,16 +4,12 @@ import (
 	"net"
 )
 
-type RequestType uint8
+type Request uint32
 
 const (
-	SlowRequest RequestType = iota
+	SlowRequest Request = iota
 	FastRequest
 )
-
-type Request struct {
-	Type RequestType `json:"type"`
-}
 
 type Response struct {
 	AcceptedTs int64 `json:"accepted_ts"`
