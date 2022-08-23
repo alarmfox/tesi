@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
-	"encoding/json"
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
-	"math"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,36 +19,40 @@ import (
 )
 
 var (
-	addr                = flag.String("server-addr", "127.0.0.1:8000", "Address for TCP server")
-	nRequest            = flag.Int("n-request", 100, "Number of request")
-	concurrency         = flag.Uint("concurrency", 1, "Number of requests to be sent concurrently")
-	slowRequestPercent  = flag.Float64("slow-request-percent", 50, "Percent of slow request")
-	slowRequestInterval = flag.Duration("slow-request-interval", 1000*time.Microsecond, "Period to send slow request")
-	fastRequestInterval = flag.Duration("fast-request-interval", time.Microsecond, "Period to send fast request")
-	resultFile          = flag.String("write", "result.txt", "File path to write result")
+	serverAddress = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
+	alg           = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
+	outputFile    = flag.String("output-file", "", "File path to write result")
+)
+
+var (
+	header = []string{
+		"alg",
+		"fast_int",
+		"slow_int",
+		"tot_requests",
+		"slow_percent",
+		"average_slow_rt",
+		"average_slow_wt",
+		"average_slow_rtt",
+		"average_fast_rt",
+		"average_fast_wt",
+		"average_fast_rtt",
+	}
 )
 
 type Config struct {
-	addr                string
-	resultFile          string
-	nRequest            int
-	concurrency         uint
-	slowRequestPercent  float64
-	slowRequestInterval time.Duration
-	fastRequestInterval time.Duration
+	algorithm  string
+	addr       string
+	outputFile string
 }
 
 func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:                *addr,
-		nRequest:            *nRequest,
-		slowRequestPercent:  *slowRequestPercent,
-		slowRequestInterval: *slowRequestInterval,
-		fastRequestInterval: *fastRequestInterval,
-		resultFile:          *resultFile,
-		concurrency:         *concurrency,
+		addr:       *serverAddress,
+		outputFile: *outputFile,
+		algorithm:  *alg,
 	}
 
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
@@ -57,182 +61,73 @@ func main() {
 
 }
 
-type Result struct {
-	Request       pbench.Request
-	ResidenceTime int64
-	WaitingTime   int64
-	RTT           int64
-}
-
 func run(c Config) error {
 	ctx, canc := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer canc()
 	g, ctx := errgroup.WithContext(ctx)
 
-	jobs := make(chan pbench.Request, c.nRequest)
+	records := make(chan pbench.BenchResult)
 
-	done := make(chan struct{})
-
-	nSlowRequest := math.Floor(float64(c.nRequest) * c.slowRequestPercent / 100)
 	g.Go(func() error {
-		ticker := time.NewTicker(c.slowRequestInterval)
-		defer func() {
-			ticker.Stop()
-			done <- struct{}{}
-		}()
-		for i := 0; i < int(nSlowRequest); i += 1 {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				jobs <- pbench.SlowRequest
-			}
+		defer close(records)
+		cfg := pbench.BenchConfig{
+			ServerAddress:       c.addr,
+			TotRequests:         100,
+			Concurrency:         1,
+			SlowRequestLoad:     50,
+			SlowRequestInterval: time.Microsecond * 500,
+			FastRequestInterval: time.Microsecond * 500,
+			MaxIdleConns:        1024,
+			MaxOpenConns:        3072,
+			Algorithm:           c.algorithm,
 		}
-		return nil
-	})
 
-	g.Go(func() error {
-		nFastRequest := c.nRequest - int(nSlowRequest)
-		ticker := time.NewTicker(c.fastRequestInterval)
-		defer func() {
-			ticker.Stop()
-			done <- struct{}{}
-		}()
-		for i := 0; i < nFastRequest; i += 1 {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				jobs <- pbench.FastRequest
-
-			}
-		}
-		return nil
-	})
-
-	results := make(chan Result, c.nRequest)
-	defer close(results)
-
-	conns, err := pbench.CreateTcpConnPool(&pbench.TcpConfig{
-		Address:      c.addr,
-		MaxIdleConns: 1024,
-		MaxOpenConn:  3072,
-	})
-
-	if err != nil {
-		return err
-	}
-	defer conns.Close()
-
-	sentRequest := make(chan struct{}, c.nRequest)
-	defer close(sentRequest)
-
-	buffers := pbench.NewPool(func() []byte { b := make([]byte, 4); return b })
-
-	for i := 0; i < int(c.concurrency); i++ {
-		g.Go(func() error {
-			var err error
-			for job := range jobs {
-				err = func() error {
-					defer func() {
-						sentRequest <- struct{}{}
-					}()
-					start := time.Now()
-
-					conn, err := conns.Get()
-
-					if err != nil {
-						return err
-					}
-
-					defer conns.Put(conn)
-
-					g.Go(func() error {
-						<-ctx.Done()
-						conn.SetDeadline(time.Now())
-						return nil
-					})
-					buffer := buffers.Get()
-					defer buffers.Put(buffer)
-
-					binary.BigEndian.PutUint32(buffer, uint32(job))
-
-					_, err = conn.Write(buffer)
-					if err != nil {
-						return err
-					}
-
-					var response pbench.Response
-					if err := json.NewDecoder(conn).Decode(&response); err != nil {
-						return err
-					}
-
-					results <- Result{
-						Request:       job,
-						ResidenceTime: response.FinishedTs - response.AcceptedTs,
-						WaitingTime:   response.RunningTs - response.AcceptedTs,
-						RTT:           time.Since(start).Microseconds(),
-					}
-					return nil
-				}()
-				if errors.Is(err, os.ErrDeadlineExceeded) {
-					return nil
-				} else if err != nil {
-					log.Print(err)
-				}
-			}
-			return nil
-		})
-	}
-
-	g.Go(func() error {
-		f, err := os.Create(c.resultFile)
+		r, err := pbench.Bench(ctx, cfg)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case result := <-results:
-				_, err := fmt.Fprintf(f, "%d;%d;%d;%d\n",
-					result.Request,
-					result.ResidenceTime,
-					result.WaitingTime,
-					result.RTT,
-				)
-				if err != nil {
-					log.Print(err)
-					continue
-				}
-
-			}
-		}
-	})
-
-	g.Go(func() error {
-		defer close(jobs)
-		for i := 0; i < 2; i++ {
-			<-done
-		}
+		records <- r
 		return nil
 	})
 
 	g.Go(func() error {
-		defer canc()
-		n := 0
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-sentRequest:
-				n += 1
-				if n == c.nRequest {
-					return nil
-				}
+		var writer io.Writer
+		if c.outputFile != "" {
+			f, err := os.Create(c.outputFile)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			writer = f
+		} else {
+			writer = os.Stdout
+		}
+		csvWriter := csv.NewWriter(writer)
+		csvWriter.Comma = ';'
+		defer csvWriter.Flush()
+
+		csvWriter.Write(header)
+		for record := range records {
+			row := []string{
+				record.Algorithm,
+				record.FasRequestInterval.String(),
+				record.SlowRequestInterval.String(),
+				fmt.Sprintf("%d", record.TotRequests),
+				fmt.Sprintf("%d", record.SlowRequestInterval),
+				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageSlowWt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRtt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageFastRt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageFastWt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageFastRtt), ".", ",", 1),
+			}
+			if err := csvWriter.Write(row); err != nil {
+				log.Print(err)
 			}
 		}
+
+		return nil
+
 	})
 
 	return g.Wait()
