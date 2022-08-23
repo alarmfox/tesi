@@ -1,4 +1,5 @@
 import argparse
+from ast import arg
 import numpy as np
 import itertools
 import json
@@ -55,7 +56,6 @@ parser.add_argument(
     help="Maximum amount of slow requests to send (percent of number requests)",
 )
 
-
 parser.add_argument(
     "--slow-load-increment",
     type=int,
@@ -67,8 +67,35 @@ parser.add_argument(
     "--output-file",
     type=str,
     default="workload.json",
-    help="Filepath to save generated workload"
+    help="Filepath to save generated workload",
 )
+
+parser.add_argument(
+    "--interval-unit",
+    type=str,
+    default="us",
+    help="Unit of time to use or interval"
+)
+
+
+def getTimeSuffix(s: str) -> str:
+    if s.lower() in ["us", "microseconds"]:
+        return "us"
+    elif s.lower() in ["ms", "milliseconds"]:
+        return "ms"
+    elif s.lower() in ["ns", "nanoseconds"]:
+        return "ns"
+    elif s.lower() in ["s", "seconds"]:
+        return "s"
+    else:
+        raise Exception(f"unsupported time unit {s}")
+
+header = [
+		"tot_requests",
+		"slow_int",
+		"fast_int",
+		"slow_percent",		
+]
 
 
 def run(args: argparse.Namespace) -> None:
@@ -76,6 +103,7 @@ def run(args: argparse.Namespace) -> None:
     n_requests = np.linspace(
         start=0, stop=args.max_requests, num=args.block_size, dtype=int
     )[1:]
+    
     slow_intervals = np.arange(
         start=args.min_interval,
         stop=args.max_interval,
@@ -95,12 +123,21 @@ def run(args: argparse.Namespace) -> None:
         step=args.slow_load_increment,
     )
 
+    sfx = getTimeSuffix(args.interval_unit)
+
     workload = list(
-        itertools.product(n_requests.tolist(), slow_intervals.tolist(), fast_intervals.tolist(), slow_percent.tolist())
+        itertools.product(
+            n_requests.tolist(),
+            [f"{x}{sfx}"for x in slow_intervals.tolist()],
+            [f"{x}{sfx}"for x in fast_intervals.tolist()],
+            slow_percent.tolist(),
+        )
     )
 
+    workload = [dict(zip(header, sublst)) for sublst in workload]
+
     with open(args.output_file, "w") as f:
-        json.dump({"workload":workload}, f)
+        json.dump({"workload": workload}, f)
 
 
 if __name__ == "__main__":
