@@ -48,7 +48,7 @@ type BenchConfig struct {
 
 func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
-	conns, err := CreateTcpConnPool(&TcpConfig{
+	conns, err := createTcpConnPool(&tcpConfig{
 		Address:      c.ServerAddress,
 		MaxIdleConns: c.MaxIdleConns,
 		MaxOpenConn:  c.MaxOpenConns,
@@ -57,7 +57,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	if err != nil {
 		return BenchResult{}, err
 	}
-	defer conns.Close()
+	defer conns.close()
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -125,18 +125,18 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 				err = func() error {
 					start := time.Now()
 
-					conn, err := conns.Get()
+					conn, err := conns.get()
 
 					if err != nil {
 						return err
 					}
 
-					defer conns.Put(conn)
+					defer conns.put(conn)
 
 					g.Go(func() error {
 						select {
 						case <-ctx.Done():
-							conn.SetDeadline(time.Now())
+							conn.conn.SetDeadline(time.Now())
 						case <-terminationSignal:
 						}
 						return nil
@@ -146,13 +146,13 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 					binary.BigEndian.PutUint32(buffer, uint32(job))
 
-					_, err = conn.Write(buffer)
+					_, err = conn.conn.Write(buffer)
 					if err != nil {
 						return err
 					}
 
 					var response Response
-					if err := json.NewDecoder(conn).Decode(&response); err != nil {
+					if err := json.NewDecoder(conn.conn).Decode(&response); err != nil {
 						return err
 					}
 

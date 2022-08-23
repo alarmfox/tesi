@@ -22,6 +22,7 @@ var (
 	serverAddress = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
 	alg           = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
 	outputFile    = flag.String("output-file", "", "File path to write result")
+	concurrency   = flag.Int("concurrency", 1, "Number of request to send concurrently")
 )
 
 var (
@@ -41,18 +42,20 @@ var (
 )
 
 type Config struct {
-	algorithm  string
-	addr       string
-	outputFile string
+	algorithm   string
+	addr        string
+	concurrency int
+	outputFile  string
 }
 
 func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:       *serverAddress,
-		outputFile: *outputFile,
-		algorithm:  *alg,
+		addr:        *serverAddress,
+		outputFile:  *outputFile,
+		algorithm:   *alg,
+		concurrency: *concurrency,
 	}
 
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
@@ -64,6 +67,7 @@ func main() {
 func run(c Config) error {
 	ctx, canc := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer canc()
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	records := make(chan pbench.BenchResult)
