@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,10 +20,13 @@ import (
 )
 
 var (
-	serverAddress = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
-	alg           = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
-	outputFile    = flag.String("output-file", "", "File path to write result")
-	concurrency   = flag.Int("concurrency", 1, "Number of request to send concurrently")
+	serverAddress     = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
+	alg               = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
+	inputFile         = flag.String("input-file", "workload.json", "File path containing workload")
+	outputFile        = flag.String("output-file", "", "File path to write result")
+	concurrency       = flag.Int("concurrency", 1, "Number of request to send concurrently")
+	maxIdleConns      = flag.Int("max-idle-conns", 256, "Number of idle connection to keep open to reuse")
+	maxOpenConnection = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
 )
 
 var (
@@ -42,20 +46,36 @@ var (
 )
 
 type Config struct {
-	algorithm   string
-	addr        string
-	concurrency int
-	outputFile  string
+	algorithm         string
+	addr              string
+	concurrency       int
+	outputFile        string
+	inputFile         string
+	maxIdleConns      int
+	maxOpenConnection int
+}
+
+type block struct {
+	TotRequests int    `json:"tot_requests"`
+	SlowInt     string `json:"slow_int"`
+	FastInt     string `json:"fast_int"`
+	SlowPercent int    `json:"slow_percent"`
+}
+type jsonData struct {
+	Workload []block `json:"workload"`
 }
 
 func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:        *serverAddress,
-		outputFile:  *outputFile,
-		algorithm:   *alg,
-		concurrency: *concurrency,
+		addr:              *serverAddress,
+		outputFile:        *outputFile,
+		algorithm:         *alg,
+		concurrency:       *concurrency,
+		inputFile:         *inputFile,
+		maxIdleConns:      *maxIdleConns,
+		maxOpenConnection: *maxOpenConnection,
 	}
 
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
@@ -72,25 +92,68 @@ func run(c Config) error {
 
 	records := make(chan pbench.BenchResult)
 
+	benchs := make(chan pbench.BenchConfig)
+	var totJobs int
 	g.Go(func() error {
-		defer close(records)
-		cfg := pbench.BenchConfig{
-			ServerAddress:       c.addr,
-			TotRequests:         100,
-			Concurrency:         1,
-			SlowRequestLoad:     50,
-			SlowRequestInterval: time.Microsecond * 500,
-			FastRequestInterval: time.Microsecond * 500,
-			MaxIdleConns:        1024,
-			MaxOpenConns:        3072,
-			Algorithm:           c.algorithm,
-		}
-
-		r, err := pbench.Bench(ctx, cfg)
+		defer close(benchs)
+		f, err := os.Open(c.inputFile)
 		if err != nil {
 			return err
 		}
-		records <- r
+		defer f.Close()
+
+		var workload jsonData
+		if err := json.NewDecoder(f).Decode(&workload); err != nil {
+			return err
+		}
+		totJobs = len(workload.Workload)
+		for _, w := range workload.Workload {
+			slowInt, err := time.ParseDuration(w.SlowInt)
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			fastInt, err := time.ParseDuration(w.FastInt)
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			benchs <- pbench.BenchConfig{
+				ServerAddress:       c.addr,
+				TotRequests:         w.TotRequests,
+				SlowRequestInterval: slowInt,
+				FastRequestInterval: fastInt,
+				SlowRequestLoad:     w.SlowPercent,
+				Concurrency:         c.concurrency,
+				MaxIdleConns:        c.maxIdleConns,
+				MaxOpenConns:        c.maxOpenConnection,
+				Algorithm:           c.algorithm,
+			}
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		defer close(records)
+
+		done := 0
+		var err error
+		for bench := range benchs {
+			err = func() error {
+				r, err := pbench.Bench(ctx, bench)
+				if err != nil {
+					return err
+				}
+				records <- r
+				return nil
+			}()
+			if err != nil {
+				log.Print(err)
+			}
+			done += 1
+			log.Printf("done %d/%d", done, totJobs)
+		}
+
 		return nil
 	})
 
