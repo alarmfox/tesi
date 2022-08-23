@@ -69,14 +69,12 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	defer close(doneSendingJobs)
 	defer close(doneSendingResult)
 
-	//1
 	nSlowRequest := math.Floor(float64(c.TotRequests) * float64(c.SlowRequestLoad) / 100)
 	g.Go(func() error {
 		ticker := time.NewTicker(c.SlowRequestInterval)
 		defer func() {
 			ticker.Stop()
 			doneSendingJobs <- struct{}{}
-			log.Print("sent slow requests")
 		}()
 		for i := 0; i < int(nSlowRequest); i += 1 {
 			select {
@@ -89,7 +87,6 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		return nil
 	})
 
-	//2
 	g.Go(func() error {
 		nFastRequest := c.TotRequests - int(nSlowRequest)
 		ticker := time.NewTicker(c.FastRequestInterval)
@@ -107,7 +104,6 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 			}
 		}
-		log.Print("sent fast requests")
 
 		return nil
 	})
@@ -170,13 +166,10 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 					log.Print(err)
 				}
 			}
-			log.Print("processed all requests")
 
 			return nil
 		})
 	}
-
-	//4
 
 	benchResult := make(chan BenchResult, 1)
 	defer close(benchResult)
@@ -220,12 +213,10 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			AverageFastWt:       avgFastWt,
 			AverageFastRtt:      avgFastRtt,
 		}
-		log.Print("processed all results")
 
 		return nil
 	})
 
-	//5
 	g.Go(func() error {
 
 		defer close(jobs)
@@ -233,19 +224,16 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		for i := 0; i < 2; i++ {
 			<-doneSendingJobs
 		}
-		log.Print("join job channel")
 
 		return nil
 	})
 
-	//6
 	g.Go(func() error {
 
 		defer close(results)
 		for i := 0; i < c.Concurrency; i++ {
 			<-doneSendingResult
 		}
-		log.Print("join results channel")
 
 		return nil
 	})
