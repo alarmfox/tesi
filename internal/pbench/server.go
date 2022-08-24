@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -42,7 +43,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	g.Go(func() error {
 		<-ctx.Done()
 		conn.Close()
-		return ctx.Err()
+		return nil
 	})
 
 	for {
@@ -55,11 +56,12 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			continue
 		}
 		g.Go(func() error {
-			g.Go(func() error {
-				<-ctx.Done()
-				return client.Close()
-			})
-			s.handleConnection(ctx, client)
+			<-ctx.Done()
+			client.Close()
+			return nil
+		})
+		g.Go(func() error {
+			s.handleConnection(client)
 			return nil
 		})
 
@@ -67,7 +69,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	return g.Wait()
 }
 
-func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) {
 
 	defer conn.Close()
 
@@ -78,7 +80,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 		n, err := conn.Read(buffer)
 
-		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
 			return
 		} else if err != nil {
 			log.Printf("error from %s: %v", conn.RemoteAddr(), err)

@@ -21,7 +21,7 @@ import (
 
 var (
 	serverAddress      = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
-	alg                = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
+	scheduler          = flag.String("scheduler", "", "Scheduling algorithm used by the server")
 	inputFile          = flag.String("input-file", "workload.json", "File path containing workload")
 	outputFile         = flag.String("output-file", "", "File path to write result")
 	concurrency        = flag.Int("concurrency", 1, "Number of request to send concurrently")
@@ -31,7 +31,7 @@ var (
 
 var (
 	header = []string{
-		"alg",
+		"sched",
 		"fast_int",
 		"slow_int",
 		"tot_requests",
@@ -71,7 +71,7 @@ func main() {
 	c := Config{
 		addr:              *serverAddress,
 		outputFile:        *outputFile,
-		algorithm:         *alg,
+		algorithm:         *scheduler,
 		concurrency:       *concurrency,
 		inputFile:         *inputFile,
 		maxIdleConns:      *maxIdleConnections,
@@ -188,8 +188,8 @@ func run(c Config) error {
 
 		for record := range records {
 			row := []string{
-				record.Algorithm,
-				record.FasRequestInterval.String(),
+				c.algorithm,
+				record.FastRequestInterval.String(),
 				record.SlowRequestInterval.String(),
 				fmt.Sprintf("%d", record.TotRequests),
 				fmt.Sprintf("%d", record.SlowRequestLoad),

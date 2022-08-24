@@ -21,8 +21,7 @@ type requestResult struct {
 }
 
 type BenchResult struct {
-	Algorithm           string
-	FasRequestInterval  time.Duration
+	FastRequestInterval time.Duration
 	SlowRequestInterval time.Duration
 	TotRequests         int
 	SlowRequestLoad     int
@@ -201,8 +200,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		avgFastRtt := float64(totFastRtt) / float64(fastCount)
 
 		benchResult <- BenchResult{
-			Algorithm:           c.Algorithm,
-			FasRequestInterval:  c.FastRequestInterval,
+			FastRequestInterval: c.FastRequestInterval,
 			SlowRequestInterval: c.SlowRequestInterval,
 			TotRequests:         c.TotRequests,
 			SlowRequestLoad:     c.SlowRequestLoad,

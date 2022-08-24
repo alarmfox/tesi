@@ -76,66 +76,62 @@ func (d *DRR[T]) Start(ctx context.Context) error {
 	if ctx == nil {
 		return ErrContextIsNil
 	}
-	go func() {
-		defer close(d.outChan)
-		for {
-			// Wait for at least one channel to be ready
-			readyIndex, value, ok := d.getReadyChannel(
-				ctx,
-				d.flows)
-			if readyIndex < 0 {
-				// Context expired, exit
-				return
+	for {
+		// Wait for at least one channel to be ready
+		readyIndex, value, ok := d.getReadyChannel(
+			ctx,
+			d.flows)
+		if readyIndex < 0 {
+			// Context expired, exit
+			return nil
+		}
+	flowLoop:
+		for index, flow := range d.flows {
+			dc := flow.prio
+			if readyIndex == index {
+				if !ok {
+					// Chan got closed, remove it from internal slice
+					d.prepareToUnregister(index)
+					continue flowLoop
+				} else {
+					// This chan triggered the reflect.Select statement
+					// transmit its value and decrement its deficit counter
+					d.outChan <- value
+					dc = flow.prio - 1
+				}
 			}
-		flowLoop:
-			for index, flow := range d.flows {
-				dc := flow.prio
-				if readyIndex == index {
+			// Trasmit from channel until it has nothing else to send
+			// or its DC reaches 0
+			for i := 0; i < dc; i++ {
+				//First, check if context expired
+				select {
+				case <-ctx.Done():
+					// Context expired, exit
+					return nil
+				default:
+				}
+				//Then, read from input chan
+				select {
+				case val, ok := <-flow.c:
 					if !ok {
 						// Chan got closed, remove it from internal slice
 						d.prepareToUnregister(index)
 						continue flowLoop
 					} else {
-						// This chan triggered the reflect.Select statement
-						// transmit its value and decrement its deficit counter
-						d.outChan <- value
-						dc = flow.prio - 1
-					}
-				}
-				// Trasmit from channel until it has nothing else to send
-				// or its DC reaches 0
-				for i := 0; i < dc; i++ {
-					//First, check if context expired
-					select {
-					case <-ctx.Done():
-						// Context expired, exit
-						return
-					default:
-					}
-					//Then, read from input chan
-					select {
-					case val, ok := <-flow.c:
-						if !ok {
-							// Chan got closed, remove it from internal slice
-							d.prepareToUnregister(index)
-							continue flowLoop
-						} else {
 
-							d.outChan <- val
-						}
-					default:
-						continue flowLoop
+						d.outChan <- val
 					}
+				default:
+					continue flowLoop
 				}
-			}
-			// All channel closed in this execution can now be actually removed
-			last := d.unregisterFlows()
-			if last {
-				return
 			}
 		}
-	}()
-	return nil
+		// All channel closed in this execution can now be actually removed
+		last := d.unregisterFlows()
+		if last {
+			return nil
+		}
+	}
 }
 
 func (d *DRR[T]) prepareToUnregister(index int) {

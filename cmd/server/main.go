@@ -6,9 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -18,9 +16,8 @@ import (
 )
 
 var (
-	addr       = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
-	scheduler  = flag.String("scheduler", "fcfs", "Scheduler algorithm to be used")
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+	addr      = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
+	scheduler = flag.String("scheduler", "", "Scheduler algorithm to be used")
 )
 
 type Config struct {
@@ -44,23 +41,6 @@ func main() {
 
 func run(c Config) error {
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		defer f.Close() // error handling omitted for example
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-
-		log.Print("starting cpu profile")
-		defer func() {
-			log.Print("stopping cpu profile")
-			pprof.StopCPUProfile()
-		}()
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -81,6 +61,7 @@ func run(c Config) error {
 	var isDRR bool
 	g.Go(func() error {
 
+		defer close(jobs)
 		switch strings.ToLower(c.scheduler) {
 		case "fcfs":
 			isDRR = false
@@ -96,11 +77,12 @@ func run(c Config) error {
 			scheduler.Input(2, loPrio)
 			return scheduler.Start(ctx)
 		default:
-			return fmt.Errorf("unsupported scheduler: %s", c.scheduler)
+			return fmt.Errorf("unsupported scheduler: %q", c.scheduler)
 		}
 	})
 
 	g.Go(func() error {
+
 		return pbench.NewServer(hiPrio, loPrio, isDRR).Start(ctx, c.addr)
 	})
 

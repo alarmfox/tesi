@@ -17,7 +17,6 @@ func NewFCFS(in <-chan Job, out chan<- Job) *FCFS {
 }
 
 func (f *FCFS) Start(ctx context.Context) error {
-	defer close(f.out)
 	for {
 		select {
 		case <-ctx.Done():
