@@ -6,10 +6,11 @@ import (
 )
 
 type Buffer struct {
+	slowTime time.Duration
 }
 
-func NewBuffer() *Buffer {
-	return &Buffer{}
+func NewBuffer(slowTime time.Duration) *Buffer {
+	return &Buffer{slowTime: slowTime}
 }
 
 var (
@@ -17,7 +18,7 @@ var (
 )
 
 func (b *Buffer) Slow() {
-	time.Sleep(time.Millisecond)
+	time.Sleep(b.slowTime)
 }
 
 func (b *Buffer) Fast() {

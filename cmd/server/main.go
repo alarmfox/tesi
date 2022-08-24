@@ -18,11 +18,13 @@ import (
 var (
 	addr      = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
 	scheduler = flag.String("scheduler", "", "Scheduler algorithm to be used")
+	slowTime  = flag.Duration("slow-time", time.Millisecond, "Time to sleep in slow requests")
 )
 
 type Config struct {
 	addr      string
 	scheduler string
+	slowTime  time.Duration
 }
 
 func main() {
@@ -31,6 +33,7 @@ func main() {
 	c := Config{
 		addr:      *addr,
 		scheduler: *scheduler,
+		slowTime:  *slowTime,
 	}
 
 	log.Printf("%+v", c)
@@ -82,13 +85,11 @@ func run(c Config) error {
 	})
 
 	g.Go(func() error {
-
 		return pbench.NewServer(hiPrio, loPrio, isDRR).Start(ctx, c.addr)
 	})
 
 	g.Go(func() error {
-
-		buffer := pbench.NewBuffer()
+		buffer := pbench.NewBuffer(c.slowTime)
 		for job := range jobs {
 			job.Response.RunningTs = time.Now().UnixMicro()
 			switch job.Request {
