@@ -192,7 +192,7 @@ func run(c Config) error {
 				record.FasRequestInterval.String(),
 				record.SlowRequestInterval.String(),
 				fmt.Sprintf("%d", record.TotRequests),
-				fmt.Sprintf("%d", record.SlowRequestInterval),
+				fmt.Sprintf("%d", record.SlowRequestLoad),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowWt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRtt), ".", ",", 1),
