@@ -18,3 +18,5 @@ build
 results
 .vscode
 *.csv
+
+workload.json
