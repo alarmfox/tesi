@@ -24,14 +24,14 @@ parser.add_argument(
     "--min-interval",
     type=int,
     default=100,
-    help="Minimum time to wait between two requests (microseconds)",
+    help="Minimum time to wait between two requests",
 )
 
 parser.add_argument(
     "--max-interval",
     type=int,
     default=500,
-    help="Maximum time to wait between two requests (microseconds)",
+    help="Maximum time to wait between two requests",
 )
 
 parser.add_argument(
