@@ -1,5 +1,4 @@
 import argparse
-from ast import arg
 import numpy as np
 import itertools
 import json
@@ -101,8 +100,8 @@ header = [
 def run(args: argparse.Namespace) -> None:
 
     n_requests = np.linspace(
-        start=0, stop=args.max_requests, num=args.block_size, dtype=int
-    )[1:]
+        start=args.min_requests, stop=args.max_requests, num=args.block_size, dtype=int
+    )
     
     slow_intervals = np.arange(
         start=args.min_interval,

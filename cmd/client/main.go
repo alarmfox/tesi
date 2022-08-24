@@ -20,13 +20,13 @@ import (
 )
 
 var (
-	serverAddress     = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
-	alg               = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
-	inputFile         = flag.String("input-file", "workload.json", "File path containing workload")
-	outputFile        = flag.String("output-file", "", "File path to write result")
-	concurrency       = flag.Int("concurrency", 1, "Number of request to send concurrently")
-	maxIdleConns      = flag.Int("max-idle-conns", 256, "Number of idle connection to keep open to reuse")
-	maxOpenConnection = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
+	serverAddress      = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
+	alg                = flag.String("algorithm", "fcfs", "Scheduling algorithm used by the server")
+	inputFile          = flag.String("input-file", "workload.json", "File path containing workload")
+	outputFile         = flag.String("output-file", "", "File path to write result")
+	concurrency        = flag.Int("concurrency", 1, "Number of request to send concurrently")
+	maxIdleConnections = flag.Int("max-idle-connections", 256, "Number of idle connection to keep open to reuse")
+	maxOpenConnections = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
 )
 
 var (
@@ -74,8 +74,8 @@ func main() {
 		algorithm:         *alg,
 		concurrency:       *concurrency,
 		inputFile:         *inputFile,
-		maxIdleConns:      *maxIdleConns,
-		maxOpenConnection: *maxOpenConnection,
+		maxIdleConns:      *maxIdleConnections,
+		maxOpenConnection: *maxOpenConnections,
 	}
 
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
@@ -135,7 +135,6 @@ func run(c Config) error {
 
 	g.Go(func() error {
 		defer close(records)
-
 		done := 0
 		var err error
 		for bench := range benchs {
@@ -159,8 +158,18 @@ func run(c Config) error {
 
 	g.Go(func() error {
 		var writer io.Writer
+		var shouldWriteHeader bool
 		if c.outputFile != "" {
-			f, err := os.Create(c.outputFile)
+			if _, err := os.Stat(c.outputFile); err == nil {
+				// path/to/whatever exists
+				shouldWriteHeader = false
+
+			} else if errors.Is(err, os.ErrNotExist) {
+				// path/to/whatever does *not* exist
+				shouldWriteHeader = true
+			}
+
+			f, err := os.OpenFile(c.outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0664)
 			if err != nil {
 				return err
 			}
@@ -173,7 +182,10 @@ func run(c Config) error {
 		csvWriter.Comma = ';'
 		defer csvWriter.Flush()
 
-		csvWriter.Write(header)
+		if shouldWriteHeader {
+			csvWriter.Write(header)
+		}
+
 		for record := range records {
 			row := []string{
 				record.Algorithm,
@@ -192,9 +204,7 @@ func run(c Config) error {
 				log.Print(err)
 			}
 		}
-
 		return nil
-
 	})
 
 	return g.Wait()
