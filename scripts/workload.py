@@ -42,14 +42,14 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--min-slow-load-percent",
+    "--min-slow-load",
     type=int,
     default=10,
     help="Minimum amount of slow requests to send (percent of number requests)",
 )
 
 parser.add_argument(
-    "--max-slow-load-percent",
+    "--max-slow-load",
     type=int,
     default=50,
     help="Maximum amount of slow requests to send (percent of number requests)",
@@ -70,10 +70,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--interval-unit",
-    type=str,
-    default="us",
-    help="Unit of time to use or interval"
+    "--interval-unit", type=str, default="us", help="Unit of time to use or interval"
 )
 
 
@@ -89,46 +86,58 @@ def getTimeSuffix(s: str) -> str:
     else:
         raise Exception(f"unsupported time unit {s}")
 
+
 header = [
-		"tot_requests",
-		"slow_int",
-		"fast_int",
-		"slow_percent",		
+    "tot_requests",
+    "slow_int",
+    "fast_int",
+    "slow_percent",
 ]
 
 
-def run(args: argparse.Namespace) -> None:
+def run(
+    min_requests: int,
+    max_requests: int,
+    block_size: int,
+    min_interval: int,
+    max_interval: int,
+    interval_increment_amount: int,
+    min_slow_load: int,
+    max_slow_load: int,
+    slow_load_increment: int,
+    interval_unit: str
+) -> None:
 
     n_requests = np.linspace(
-        start=args.min_requests, stop=args.max_requests, num=args.block_size, dtype=int
+        start=min_requests, stop=max_requests, num=block_size, dtype=int
     )
-    
+
     slow_intervals = np.arange(
-        start=args.min_interval,
-        stop=args.max_interval,
-        step=args.interval_increment_amount,
+        start=min_interval,
+        stop=max_interval,
+        step=interval_increment_amount,
     )
 
     fast_intervals = np.arange(
-        start=args.min_interval,
-        stop=args.max_interval,
-        step=args.interval_increment_amount,
+        start=min_interval,
+        stop=max_interval,
+        step=interval_increment_amount,
         dtype=int,
     )
 
     slow_percent = np.arange(
-        start=args.min_slow_load_percent,
-        stop=args.max_slow_load_percent,
-        step=args.slow_load_increment,
+        start=min_slow_load,
+        stop=max_slow_load,
+        step=slow_load_increment,
     )
 
-    sfx = getTimeSuffix(args.interval_unit)
+    sfx = getTimeSuffix(interval_unit)
 
     workload = list(
         itertools.product(
             n_requests.tolist(),
-            [f"{x}{sfx}"for x in slow_intervals.tolist()],
-            [f"{x}{sfx}"for x in fast_intervals.tolist()],
+            [f"{x}{sfx}" for x in slow_intervals.tolist()],
+            [f"{x}{sfx}" for x in fast_intervals.tolist()],
             slow_percent.tolist(),
         )
     )
@@ -141,4 +150,15 @@ def run(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    run(args)
+    run(
+        args.min_requests,
+        args.max_requests,
+        args.block_size,
+        args.min_interval,
+        args.max_interval,
+        args.interval_increment_amount,
+        args.min_slow_load,
+        args.max_slow_load,
+        args.slow_load_increment,
+        args.interval_unit
+    )

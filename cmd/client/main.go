@@ -77,6 +77,7 @@ func main() {
 		maxIdleConns:      *maxIdleConnections,
 		maxOpenConnection: *maxOpenConnections,
 	}
+	log.Print(c)
 
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
@@ -89,8 +90,6 @@ func run(c Config) error {
 	defer canc()
 
 	g, ctx := errgroup.WithContext(ctx)
-
-	records := make(chan pbench.BenchResult)
 
 	benchs := make(chan pbench.BenchConfig)
 	var totJobs int
@@ -129,28 +128,27 @@ func run(c Config) error {
 				MaxOpenConns:        c.maxOpenConnection,
 				Algorithm:           c.algorithm,
 			}
+
 		}
 		return nil
 	})
 
+	records := make(chan pbench.BenchResult)
 	g.Go(func() error {
 		defer close(records)
 		done := 0
 		var err error
+		var r pbench.BenchResult
 		for bench := range benchs {
-			err = func() error {
-				r, err := pbench.Bench(ctx, bench)
-				if err != nil {
-					return err
-				}
-				records <- r
-				return nil
-			}()
+			r, err = pbench.Bench(ctx, bench)
 			if err != nil {
 				log.Print(err)
+			} else {
+				records <- r
 			}
+
 			done += 1
-			log.Printf("done %d/%d", done, totJobs)
+			log.Printf("done %d/%d: %+v", done, totJobs, bench)
 		}
 
 		return nil
@@ -158,18 +156,8 @@ func run(c Config) error {
 
 	g.Go(func() error {
 		var writer io.Writer
-		var shouldWriteHeader bool
 		if c.outputFile != "" {
-			if _, err := os.Stat(c.outputFile); err == nil {
-				// path/to/whatever exists
-				shouldWriteHeader = false
-
-			} else if errors.Is(err, os.ErrNotExist) {
-				// path/to/whatever does *not* exist
-				shouldWriteHeader = true
-			}
-
-			f, err := os.OpenFile(c.outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0664)
+			f, err := os.Create(c.outputFile)
 			if err != nil {
 				return err
 			}
@@ -182,9 +170,8 @@ func run(c Config) error {
 		csvWriter.Comma = ';'
 		defer csvWriter.Flush()
 
-		if shouldWriteHeader {
-			csvWriter.Write(header)
-		}
+		csvWriter.Write(header)
+		csvWriter.Flush()
 
 		for record := range records {
 			row := []string{

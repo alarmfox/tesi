@@ -2,6 +2,7 @@ package pbench
 
 import (
 	"net"
+	"time"
 )
 
 type Request uint32
@@ -12,9 +13,9 @@ const (
 )
 
 type Response struct {
-	AcceptedTs int64 `json:"accepted_ts"`
-	RunningTs  int64 `json:"running_ts"`
-	FinishedTs int64 `json:"finished_ts"`
+	AcceptedTs time.Time `json:"accepted_ts"`
+	RunningTs  time.Time `json:"running_ts"`
+	FinishedTs time.Time `json:"finished_ts"`
 }
 
 type Job struct {

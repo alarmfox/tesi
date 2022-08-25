@@ -91,14 +91,14 @@ func run(c Config) error {
 	g.Go(func() error {
 		buffer := pbench.NewBuffer(c.slowTime)
 		for job := range jobs {
-			job.Response.RunningTs = time.Now().UnixMicro()
+			job.Response.RunningTs = time.Now()
 			switch job.Request {
 			case pbench.SlowRequest:
 				buffer.Slow()
 			case pbench.FastRequest:
 				buffer.Fast()
 			}
-			job.Response.FinishedTs = time.Now().UnixMicro()
+			job.Response.FinishedTs = time.Now()
 			err := json.NewEncoder(job.Client).Encode(job.Response)
 			if err != nil {
 				log.Printf("response: %v", err)

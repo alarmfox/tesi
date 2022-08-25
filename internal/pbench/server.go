@@ -95,7 +95,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		err = s.schedule(Job{
 			Request: Request(r),
 			Response: Response{
-				AcceptedTs: time.Now().UnixMicro(),
+				AcceptedTs: time.Now(),
 			},
 			Client: conn,
 		})

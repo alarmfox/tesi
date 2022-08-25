@@ -15,9 +15,9 @@ import (
 
 type requestResult struct {
 	Request       Request
-	ResidenceTime int64
-	WaitingTime   int64
-	RTT           int64
+	ResidenceTime time.Duration
+	WaitingTime   time.Duration
+	RTT           time.Duration
 }
 
 type BenchResult struct {
@@ -153,9 +153,9 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 					results <- requestResult{
 						Request:       job,
-						ResidenceTime: response.FinishedTs - response.AcceptedTs,
-						WaitingTime:   response.RunningTs - response.AcceptedTs,
-						RTT:           time.Since(start).Microseconds(),
+						ResidenceTime: response.FinishedTs.Sub(response.AcceptedTs),
+						WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
+						RTT:           time.Since(start),
 					}
 					return nil
 				}()
@@ -174,7 +174,8 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	defer close(benchResult)
 	g.Go(func() error {
 
-		var totSlowRt, totFastRt, totFastRtt, totFastWt, totSlowRtt, totSlowWt, slowCount, fastCount int64 = 0, 0, 0, 0, 0, 0, 0, 0
+		var totSlowRt, totFastRt, totFastRtt, totFastWt, totSlowRtt, totSlowWt time.Duration = 0, 0, 0, 0, 0, 0
+		var slowCount, fastCount int = 0, 0
 		for result := range results {
 			switch result.Request {
 			case SlowRequest:
