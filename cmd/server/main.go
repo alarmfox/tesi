@@ -16,24 +16,24 @@ import (
 )
 
 var (
-	addr      = flag.String("listen-addr", "127.0.0.1:8000", "Listen address for TCP server")
-	scheduler = flag.String("scheduler", "", "Scheduler algorithm to be used")
-	slowTime  = flag.Duration("slow-time", time.Millisecond, "Time to sleep in slow requests")
+	listenAddress = flag.String("listen-address", "127.0.0.1:8000", "Listen address for TCP server")
+	scheduler     = flag.String("scheduler", "", "Scheduler algorithm to be used")
+	slowTime      = flag.Duration("slow-time", time.Millisecond, "Time to sleep in slow requests")
 )
 
 type Config struct {
-	addr      string
-	scheduler string
-	slowTime  time.Duration
+	listenAddress string
+	scheduler     string
+	slowTime      time.Duration
 }
 
 func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:      *addr,
-		scheduler: *scheduler,
-		slowTime:  *slowTime,
+		listenAddress: *listenAddress,
+		scheduler:     *scheduler,
+		slowTime:      *slowTime,
 	}
 
 	log.Printf("%+v", c)
@@ -85,7 +85,7 @@ func run(c Config) error {
 	})
 
 	g.Go(func() error {
-		return pbench.NewServer(hiPrio, loPrio, isDRR).Start(ctx, c.addr)
+		return pbench.NewServer(hiPrio, loPrio, isDRR).Start(ctx, c.listenAddress)
 	})
 
 	g.Go(func() error {

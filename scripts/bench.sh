@@ -3,7 +3,7 @@
 
 go run cmd/client/main.go \
     --scheduler=fcfs \
-    --concurrency=4 \
+    --concurrency=6 \
     --server-address=127.0.0.1:8000 \
     --max-idle-connections=1024 \
     --max-open-connections=1024 \

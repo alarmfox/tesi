@@ -27,9 +27,7 @@ def run(input_files: List[str], output_file: str) -> None:
         for file in input_files:
             with open(file, "r") as infile:
                 r = csv.DictReader(infile, delimiter=";")
-                for line in r:
-                    w.writerow(line)
-
+                w.writerows(r)
 
 if __name__ == "__main__":
     args = parser.parse_args()
