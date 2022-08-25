@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -36,8 +37,7 @@ func main() {
 		slowTime:      *slowTime,
 	}
 
-	log.Printf("%+v", c)
-	if err := run(c); err != nil && err != context.Canceled {
+	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}
 }

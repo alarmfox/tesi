@@ -17,7 +17,7 @@ type requestResult struct {
 	Request       Request
 	ResidenceTime time.Duration
 	WaitingTime   time.Duration
-	RTT           time.Duration
+	RoundTripTime time.Duration
 }
 
 type BenchResult struct {
@@ -155,7 +155,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 						Request:       job,
 						ResidenceTime: response.FinishedTs.Sub(response.AcceptedTs),
 						WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
-						RTT:           time.Since(start),
+						RoundTripTime: time.Since(start),
 					}
 					return nil
 				}()
@@ -181,12 +181,12 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			case SlowRequest:
 				slowCount += 1
 				totSlowRt += result.ResidenceTime
-				totSlowRtt += result.RTT
+				totSlowRtt += result.RoundTripTime
 				totSlowWt += result.WaitingTime
 			case FastRequest:
 				fastCount += 1
 				totFastRt += result.ResidenceTime
-				totFastRtt += result.RTT
+				totFastRtt += result.RoundTripTime
 				totFastWt += result.WaitingTime
 			default:
 				log.Printf("unknown request type: %d", result.Request)

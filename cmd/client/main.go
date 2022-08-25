@@ -77,8 +77,6 @@ func main() {
 		maxIdleConns:      *maxIdleConnections,
 		maxOpenConnection: *maxOpenConnections,
 	}
-	log.Print(c)
-
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}
