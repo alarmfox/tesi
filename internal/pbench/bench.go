@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"gonum.org/v1/gonum/stat"
+	"gonum.org/v1/gonum/stat/distuv"
 )
 
 type requestResult struct {
@@ -21,28 +23,29 @@ type requestResult struct {
 }
 
 type BenchResult struct {
-	FastRequestInterval time.Duration
-	SlowRequestInterval time.Duration
-	TotRequests         int
-	SlowRequestLoad     int
-	AverageSlowRt       float64
-	AverageSlowWt       float64
-	AverageSlowRtt      float64
-	AverageFastRt       float64
-	AverageFastWt       float64
-	AverageFastRtt      float64
+	FastLambda      float64
+	SlowLambda      float64
+	TotRequests     int
+	SlowRequestLoad int
+	AverageSlowRt   float64
+	AverageSlowWt   float64
+	AverageSlowRtt  float64
+	AverageFastRt   float64
+	AverageFastWt   float64
+	AverageFastRtt  float64
 }
 
 type BenchConfig struct {
-	Algorithm           string
-	ServerAddress       string
-	TotRequests         int
-	Concurrency         int
-	SlowRequestLoad     int
-	SlowRequestInterval time.Duration
-	FastRequestInterval time.Duration
-	MaxIdleConns        int
-	MaxOpenConns        int
+	Algorithm       string
+	ServerAddress   string
+	TotRequests     int
+	Concurrency     int
+	SlowRequestLoad int
+	SlowLambda      float64
+	FastLambda      float64
+	MaxIdleConns    int
+	MaxOpenConns    int
+	TimeUnit        time.Duration
 }
 
 func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
@@ -69,40 +72,22 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	defer close(doneSendingResult)
 
 	nSlowRequest := math.Floor(float64(c.TotRequests) * float64(c.SlowRequestLoad) / 100)
+
 	g.Go(func() error {
-		ticker := time.NewTicker(c.SlowRequestInterval)
 		defer func() {
-			ticker.Stop()
 			doneSendingJobs <- struct{}{}
 		}()
-		for i := 0; i < int(nSlowRequest); i += 1 {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				jobs <- SlowRequest
-			}
-		}
+		sendJobs(ctx, SlowRequest, int(nSlowRequest), c.TimeUnit, c.SlowLambda, jobs)
 		return nil
 	})
 
 	g.Go(func() error {
 		nFastRequest := c.TotRequests - int(nSlowRequest)
-		ticker := time.NewTicker(c.FastRequestInterval)
 		defer func() {
-			ticker.Stop()
 			doneSendingJobs <- struct{}{}
 
 		}()
-		for i := 0; i < nFastRequest; i += 1 {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				jobs <- FastRequest
-
-			}
-		}
+		sendJobs(ctx, FastRequest, nFastRequest, c.TimeUnit, c.FastLambda, jobs)
 
 		return nil
 	})
@@ -110,7 +95,6 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	buffers := NewPool(func() []byte { b := make([]byte, 4); return b })
 
 	for i := 0; i < c.Concurrency; i++ {
-
 		g.Go(func() error {
 			defer func() {
 				doneSendingResult <- struct{}{}
@@ -170,47 +154,43 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		})
 	}
 
-	benchResult := make(chan BenchResult, 1)
+	benchResult := make(chan BenchResult)
 	defer close(benchResult)
 	g.Go(func() error {
 
-		var totSlowRt, totFastRt, totFastRtt, totFastWt, totSlowRtt, totSlowWt time.Duration = 0, 0, 0, 0, 0, 0
-		var slowCount, fastCount int = 0, 0
+		var slowRt []float64 = make([]float64, 0)
+		var slowWt []float64 = make([]float64, 0)
+		var slowRtt []float64 = make([]float64, 0)
+		var fastRt []float64 = make([]float64, 0)
+		var fastWt []float64 = make([]float64, 0)
+		var fastRtt []float64 = make([]float64, 0)
+
 		for result := range results {
 			switch result.Request {
 			case SlowRequest:
-				slowCount += 1
-				totSlowRt += result.ResidenceTime
-				totSlowRtt += result.RoundTripTime
-				totSlowWt += result.WaitingTime
+				slowRt = append(slowRt, float64(result.ResidenceTime))
+				slowWt = append(slowWt, float64(result.WaitingTime))
+				slowRtt = append(slowRtt, float64(result.RoundTripTime))
 			case FastRequest:
-				fastCount += 1
-				totFastRt += result.ResidenceTime
-				totFastRtt += result.RoundTripTime
-				totFastWt += result.WaitingTime
+				fastRt = append(fastRt, float64(result.ResidenceTime))
+				fastWt = append(fastWt, float64(result.WaitingTime))
+				fastRtt = append(fastRtt, float64(result.RoundTripTime))
 			default:
 				log.Printf("unknown request type: %d", result.Request)
 			}
 		}
-		avgSlowRt := float64(totSlowRt) / float64(slowCount)
-		avgSlowWt := float64(totSlowWt) / float64(slowCount)
-		avgSlowRtt := float64(totSlowRtt) / float64(slowCount)
-
-		avgFastRt := float64(totFastRt) / float64(fastCount)
-		avgFastWt := float64(totFastWt) / float64(fastCount)
-		avgFastRtt := float64(totFastRtt) / float64(fastCount)
 
 		benchResult <- BenchResult{
-			FastRequestInterval: c.FastRequestInterval,
-			SlowRequestInterval: c.SlowRequestInterval,
-			TotRequests:         c.TotRequests,
-			SlowRequestLoad:     c.SlowRequestLoad,
-			AverageSlowRt:       avgSlowRt,
-			AverageSlowWt:       avgSlowWt,
-			AverageSlowRtt:      avgSlowRtt,
-			AverageFastRt:       avgFastRt,
-			AverageFastWt:       avgFastWt,
-			AverageFastRtt:      avgFastRtt,
+			FastLambda:      c.FastLambda,
+			SlowLambda:      c.SlowLambda,
+			TotRequests:     c.TotRequests,
+			SlowRequestLoad: c.SlowRequestLoad,
+			AverageSlowRt:   stat.Mean(slowRt, nil),
+			AverageSlowWt:   stat.Mean(slowWt, nil),
+			AverageSlowRtt:  stat.Mean(slowRtt, nil),
+			AverageFastRt:   stat.Mean(fastRt, nil),
+			AverageFastWt:   stat.Mean(fastWt, nil),
+			AverageFastRtt:  stat.Mean(fastRtt, nil),
 		}
 
 		return nil
@@ -237,8 +217,26 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		return nil
 	})
 
-	g.Wait()
+	return <-benchResult, g.Wait()
 
-	return <-benchResult, nil
+}
 
+func sendJobs(ctx context.Context, request Request, n int, timeUnit time.Duration, mean float64, jobs chan<- Request) {
+	poisson := distuv.Poisson{
+		Lambda: mean,
+	}
+	for i := 0; i < n; i += 1 {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			n := poisson.Rand()
+			select {
+			case <-time.After(time.Duration(n) * timeUnit):
+				jobs <- request
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }

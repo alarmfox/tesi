@@ -27,13 +27,14 @@ var (
 	concurrency        = flag.Int("concurrency", 1, "Number of request to send concurrently")
 	maxIdleConnections = flag.Int("max-idle-connections", 256, "Number of idle connection to keep open to reuse")
 	maxOpenConnections = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
+	timeUnit           = flag.Duration("time-unit", time.Microsecond, "Time multiplier of Poisson generated values")
 )
 
 var (
 	header = []string{
 		"sched",
-		"fast_int",
-		"slow_int",
+		"fast_lambda",
+		"slow_lambda",
 		"tot_requests",
 		"slow_percent",
 		"average_slow_rt",
@@ -53,13 +54,14 @@ type Config struct {
 	inputFile         string
 	maxIdleConns      int
 	maxOpenConnection int
+	timeUnit          time.Duration
 }
 
 type block struct {
-	TotRequests int    `json:"tot_requests"`
-	SlowInt     string `json:"slow_int"`
-	FastInt     string `json:"fast_int"`
-	SlowPercent int    `json:"slow_percent"`
+	TotRequests int `json:"tot_requests"`
+	SlowLambda  int `json:"slow_lambda"`
+	FastLambda  int `json:"fast_lambda"`
+	SlowPercent int `json:"slow_percent"`
 }
 type jsonData struct {
 	Workload []block `json:"workload"`
@@ -76,6 +78,7 @@ func main() {
 		inputFile:         *inputFile,
 		maxIdleConns:      *maxIdleConnections,
 		maxOpenConnection: *maxOpenConnections,
+		timeUnit:          *timeUnit,
 	}
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
@@ -89,56 +92,31 @@ func run(c Config) error {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	benchs := make(chan pbench.BenchConfig)
-	var totJobs int
-	g.Go(func() error {
-		defer close(benchs)
-		f, err := os.Open(c.inputFile)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
+	benches, err := getBenchesFromFile(c.inputFile)
+	if err != nil {
+		return err
+	}
 
-		var workload jsonData
-		if err := json.NewDecoder(f).Decode(&workload); err != nil {
-			return err
-		}
-		totJobs = len(workload.Workload)
-		for _, w := range workload.Workload {
-			slowInt, err := time.ParseDuration(w.SlowInt)
-			if err != nil {
-				log.Print(err)
-				continue
-			}
-			fastInt, err := time.ParseDuration(w.FastInt)
-			if err != nil {
-				log.Print(err)
-				continue
-			}
-			benchs <- pbench.BenchConfig{
-				ServerAddress:       c.addr,
-				TotRequests:         w.TotRequests,
-				SlowRequestInterval: slowInt,
-				FastRequestInterval: fastInt,
-				SlowRequestLoad:     w.SlowPercent,
-				Concurrency:         c.concurrency,
-				MaxIdleConns:        c.maxIdleConns,
-				MaxOpenConns:        c.maxOpenConnection,
-				Algorithm:           c.algorithm,
-			}
-
-		}
-		return nil
-	})
-
-	records := make(chan pbench.BenchResult)
+	records := make(chan pbench.BenchResult, len(benches))
 	g.Go(func() error {
 		defer close(records)
 		done := 0
 		var err error
 		var r pbench.BenchResult
-		for bench := range benchs {
-			r, err = pbench.Bench(ctx, bench)
+		for i := range benches {
+			cfg := pbench.BenchConfig{
+				Algorithm:       c.algorithm,
+				ServerAddress:   c.addr,
+				TotRequests:     benches[i].TotRequests,
+				Concurrency:     c.concurrency,
+				SlowRequestLoad: benches[i].SlowPercent,
+				SlowLambda:      float64(benches[i].SlowLambda),
+				FastLambda:      float64(benches[i].FastLambda),
+				MaxIdleConns:    c.maxIdleConns,
+				MaxOpenConns:    c.maxOpenConnection,
+				TimeUnit:        c.timeUnit,
+			}
+			r, err = pbench.Bench(ctx, cfg)
 			if err != nil {
 				log.Print(err)
 			} else {
@@ -146,7 +124,7 @@ func run(c Config) error {
 			}
 
 			done += 1
-			log.Printf("done %d/%d: %+v", done, totJobs, bench)
+			log.Printf("done %d/%d: %+v", done, len(benches), cfg)
 		}
 
 		return nil
@@ -174,8 +152,8 @@ func run(c Config) error {
 		for record := range records {
 			row := []string{
 				c.algorithm,
-				record.FastRequestInterval.String(),
-				record.SlowRequestInterval.String(),
+				strings.Replace(fmt.Sprintf("%f", record.FastLambda), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.SlowLambda), ".", ",", 1),
 				fmt.Sprintf("%d", record.TotRequests),
 				fmt.Sprintf("%d", record.SlowRequestLoad),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRt), ".", ",", 1),
@@ -194,4 +172,18 @@ func run(c Config) error {
 
 	return g.Wait()
 
+}
+
+func getBenchesFromFile(fname string) ([]block, error) {
+	f, err := os.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var workload jsonData
+	if err := json.NewDecoder(f).Decode(&workload); err != nil {
+		return nil, err
+	}
+	return workload.Workload, nil
 }
