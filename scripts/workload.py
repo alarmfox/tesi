@@ -23,20 +23,20 @@ parser.add_argument(
 parser.add_argument(
     "--start-job-lambdas",
     type=int,
-    default=100.,
+    default=100,
     help="Minimum time to wait between two requests",
 )
 parser.add_argument(
     "--stop-job-lambdas",
     type=int,
-    default=500.,
+    default=500,
     help="Minimum time to wait between two requests",
 )
 
 parser.add_argument(
     "--job-lambdas-increment",
     type=int,
-    default=100.,
+    default=100,
     help="Incrment of slow requests to send (percent of number requests)",
 )
 
@@ -88,7 +88,7 @@ def run(
     slow_load_increment: int,
 ) -> None:
 
-    n_requests = np.linspace(
+    n_requests = np.geomspace(
         start=start_requests, stop=stop_requests, num=block_size, dtype=int
     )
 

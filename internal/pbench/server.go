@@ -75,33 +75,32 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	defer conn.Close()
 
-	var err error
 	for {
-		err = func() error {
 
-			buffer := s.buffers.Get()
-			defer s.buffers.Put(buffer)
+		buffer := s.buffers.Get()
+		defer s.buffers.Put(buffer)
 
-			n, err := conn.Read(buffer)
+		n, err := conn.Read(buffer)
 
-			if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
-				return nil
-			} else if err != nil {
-				return fmt.Errorf("error from %s: %v", conn.RemoteAddr(), err)
-			} else if n != 4 {
-				return fmt.Errorf("cannot read requests type")
-			}
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
+			return
+		} else if err != nil {
+			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
+			continue
+		} else if n != 4 {
+			log.Printf("cannot read requests type")
+			continue
+		}
 
-			r := binary.BigEndian.Uint32(buffer)
+		r := binary.BigEndian.Uint32(buffer)
 
-			return s.schedule(Job{
-				Request: Request(r),
-				Response: Response{
-					AcceptedTs: time.Now(),
-				},
-				Client: conn,
-			})
-		}()
+		err = s.schedule(Job{
+			Request: Request(r),
+			Response: Response{
+				AcceptedTs: time.Now(),
+			},
+			Client: conn,
+		})
 
 		if err != nil {
 			log.Printf("cannot schedule: %v", err)

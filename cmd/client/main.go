@@ -33,8 +33,8 @@ var (
 var (
 	header = []string{
 		"sched",
-		"fast_lambda",
-		"slow_lambda",
+		"fast_rate",
+		"slow_rate",
 		"tot_requests",
 		"slow_percent",
 		"average_slow_rt",
@@ -110,8 +110,8 @@ func run(c Config) error {
 				TotRequests:     benches[i].TotRequests,
 				Concurrency:     c.concurrency,
 				SlowRequestLoad: benches[i].SlowPercent,
-				SlowLambda:      float64(benches[i].SlowLambda),
-				FastLambda:      float64(benches[i].FastLambda),
+				SlowRate:        float64(benches[i].SlowLambda),
+				FastRate:        float64(benches[i].FastLambda),
 				MaxIdleConns:    c.maxIdleConns,
 				MaxOpenConns:    c.maxOpenConnection,
 				TimeUnit:        c.timeUnit,

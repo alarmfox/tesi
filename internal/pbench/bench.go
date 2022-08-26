@@ -41,8 +41,8 @@ type BenchConfig struct {
 	TotRequests     int
 	Concurrency     int
 	SlowRequestLoad int
-	SlowLambda      float64
-	FastLambda      float64
+	SlowRate        float64
+	FastRate        float64
 	MaxIdleConns    int
 	MaxOpenConns    int
 	TimeUnit        time.Duration
@@ -77,7 +77,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		defer func() {
 			doneSendingJobs <- struct{}{}
 		}()
-		sendJobs(ctx, SlowRequest, int(nSlowRequest), c.TimeUnit, c.SlowLambda, jobs)
+		sendJobs(ctx, SlowRequest, int(nSlowRequest), c.TimeUnit, c.SlowRate, jobs)
 		return nil
 	})
 
@@ -87,7 +87,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			doneSendingJobs <- struct{}{}
 
 		}()
-		sendJobs(ctx, FastRequest, nFastRequest, c.TimeUnit, c.FastLambda, jobs)
+		sendJobs(ctx, FastRequest, nFastRequest, c.TimeUnit, c.FastRate, jobs)
 
 		return nil
 	})
@@ -181,8 +181,8 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		}
 
 		benchResult <- BenchResult{
-			FastLambda:      c.FastLambda,
-			SlowLambda:      c.SlowLambda,
+			FastLambda:      c.FastRate,
+			SlowLambda:      c.SlowRate,
 			TotRequests:     c.TotRequests,
 			SlowRequestLoad: c.SlowRequestLoad,
 			AverageSlowRt:   stat.Mean(slowRt, nil),
@@ -221,16 +221,16 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 }
 
-func sendJobs(ctx context.Context, request Request, n int, timeUnit time.Duration, mean float64, jobs chan<- Request) {
-	poisson := distuv.Poisson{
-		Lambda: mean,
+func sendJobs(ctx context.Context, request Request, n int, timeUnit time.Duration, rate float64, jobs chan<- Request) {
+	exp := distuv.Exponential{
+		Rate: 1 / rate,
 	}
 	for i := 0; i < n; i += 1 {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			n := poisson.Rand()
+			n := exp.Rand()
 			select {
 			case <-time.After(time.Duration(n) * timeUnit):
 				jobs <- request

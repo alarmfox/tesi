@@ -17,7 +17,8 @@ Come tecnologia vorrei utilizzare GO (sia per la CLI che per il server), mentre 
     * 1.1 Algoritmi di short term scheduling: caratterizzazione qualitativa
 
     * 1.2 Teoria delle code
-
+    
+        * Processo di Poisson
         * 1.2.1 Modello a singola coda (M/M/1)
 
     * 1.3 Architettura client-server
