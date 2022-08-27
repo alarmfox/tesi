@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/alarmfox/tesi/internal/pbench"
 	"golang.org/x/sync/errgroup"
@@ -24,10 +23,8 @@ var (
 	scheduler          = flag.String("scheduler", "", "Scheduling algorithm used by the server")
 	inputFile          = flag.String("input-file", "workload.json", "File path containing workload")
 	outputFile         = flag.String("output-file", "", "File path to write result")
-	concurrency        = flag.Int("concurrency", 1, "Number of request to send concurrently")
 	maxIdleConnections = flag.Int("max-idle-connections", 256, "Number of idle connection to keep open to reuse")
 	maxOpenConnections = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
-	timeUnit           = flag.Duration("time-unit", time.Microsecond, "Time multiplier of Poisson generated values")
 )
 
 var (
@@ -49,19 +46,17 @@ var (
 type Config struct {
 	algorithm         string
 	addr              string
-	concurrency       int
 	outputFile        string
 	inputFile         string
 	maxIdleConns      int
 	maxOpenConnection int
-	timeUnit          time.Duration
 }
 
 type block struct {
-	TotRequests int `json:"tot_requests"`
-	SlowLambda  int `json:"slow_lambda"`
-	FastLambda  int `json:"fast_lambda"`
-	SlowPercent int `json:"slow_percent"`
+	TotRequests int     `json:"tot_requests"`
+	SlowRate    float64 `json:"slow_rate"`
+	FastRate    float64 `json:"fast_rate"`
+	SlowPercent int     `json:"slow_percent"`
 }
 type jsonData struct {
 	Workload []block `json:"workload"`
@@ -74,11 +69,9 @@ func main() {
 		addr:              *serverAddress,
 		outputFile:        *outputFile,
 		algorithm:         *scheduler,
-		concurrency:       *concurrency,
 		inputFile:         *inputFile,
 		maxIdleConns:      *maxIdleConnections,
 		maxOpenConnection: *maxOpenConnections,
-		timeUnit:          *timeUnit,
 	}
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
@@ -108,13 +101,11 @@ func run(c Config) error {
 				Algorithm:       c.algorithm,
 				ServerAddress:   c.addr,
 				TotRequests:     benches[i].TotRequests,
-				Concurrency:     c.concurrency,
 				SlowRequestLoad: benches[i].SlowPercent,
-				SlowRate:        float64(benches[i].SlowLambda),
-				FastRate:        float64(benches[i].FastLambda),
+				SlowRate:        benches[i].SlowRate,
+				FastRate:        benches[i].FastRate,
 				MaxIdleConns:    c.maxIdleConns,
 				MaxOpenConns:    c.maxOpenConnection,
-				TimeUnit:        c.timeUnit,
 			}
 			r, err = pbench.Bench(ctx, cfg)
 			if err != nil {
@@ -147,8 +138,6 @@ func run(c Config) error {
 		defer csvWriter.Flush()
 
 		csvWriter.Write(header)
-		csvWriter.Flush()
-
 		for record := range records {
 			row := []string{
 				c.algorithm,

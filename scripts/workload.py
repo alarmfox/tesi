@@ -21,23 +21,16 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--start-job-lambdas",
+    "--start-job-rate",
     type=int,
     default=100,
-    help="Minimum time to wait between two requests",
+    help="Start number of requests to send in a second",
 )
 parser.add_argument(
-    "--stop-job-lambdas",
+    "--stop-job-rate",
     type=int,
     default=500,
-    help="Minimum time to wait between two requests",
-)
-
-parser.add_argument(
-    "--job-lambdas-increment",
-    type=int,
-    default=100,
-    help="Incrment of slow requests to send (percent of number requests)",
+    help="Stop number request to send in a second",
 )
 
 parser.add_argument(
@@ -70,8 +63,8 @@ parser.add_argument(
 
 header = [
     "tot_requests",
-    "slow_lambda",
-    "fast_lambda",
+    "slow_rate",
+    "fast_rate",
     "slow_percent",
 ]
 
@@ -80,9 +73,8 @@ def run(
     start_requests: int,
     stop_requests: int,
     block_size: int,
-    start_job_lambdas: int,
-    stop_job_lambdas: int,
-    job_lambdas_increment: int,
+    start_job_rate: int,
+    stop_job_rate: int,
     start_slow_load: int,
     stop_slow_load: int,
     slow_load_increment: int,
@@ -92,17 +84,10 @@ def run(
         start=start_requests, stop=stop_requests, num=block_size, dtype=int
     )
 
-    slow_intervals = np.arange(
-        start=start_job_lambdas,
-        stop=stop_job_lambdas,
-        step=job_lambdas_increment,
-        dtype=int
-    )
-
-    fast_intervals = np.arange(
-        start=start_job_lambdas,
-        stop=stop_job_lambdas,
-        step=job_lambdas_increment,
+    rates = np.geomspace(
+        start=start_job_rate,
+        stop=stop_job_rate,
+        num=block_size,
         dtype=int
     )
 
@@ -116,8 +101,8 @@ def run(
     workload = list(
         itertools.product(
             n_requests.tolist(),
-            [x for x in slow_intervals.tolist()],
-            [x for x in fast_intervals.tolist()],
+            [x for x in rates.tolist()],
+            [x for x in rates.tolist()],
             slow_percent.tolist(),
         )
     )
@@ -134,9 +119,8 @@ if __name__ == "__main__":
         args.start_requests,
         args.stop_requests,
         args.block_size,
-        args.start_job_lambdas,
-        args.stop_job_lambdas,
-        args.job_lambdas_increment,
+        args.start_job_rate,
+        args.stop_job_rate,
         args.start_slow_load,
         args.stop_slow_load,
         args.slow_load_increment,
