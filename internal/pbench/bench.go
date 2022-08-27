@@ -4,10 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"log"
 	"math"
-	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -39,13 +38,11 @@ type BenchConfig struct {
 	Algorithm       string
 	ServerAddress   string
 	TotRequests     int
-	Concurrency     int
 	SlowRequestLoad int
 	SlowRate        float64
 	FastRate        float64
 	MaxIdleConns    int
 	MaxOpenConns    int
-	TimeUnit        time.Duration
 }
 
 func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
@@ -63,10 +60,10 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	jobs := make(chan Request, c.TotRequests)
+	requests := make(chan Request, c.TotRequests)
 	results := make(chan requestResult, c.TotRequests)
 	doneSendingJobs := make(chan struct{}, 2)
-	doneSendingResult := make(chan struct{}, c.Concurrency)
+	doneSendingResult := make(chan struct{})
 	terminationSignal := make(chan struct{})
 	defer close(doneSendingJobs)
 	defer close(doneSendingResult)
@@ -77,7 +74,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		defer func() {
 			doneSendingJobs <- struct{}{}
 		}()
-		sendJobs(ctx, SlowRequest, int(nSlowRequest), c.TimeUnit, c.SlowRate, jobs)
+		sendJobs(ctx, SlowRequest, int(nSlowRequest), c.SlowRate, requests)
 		return nil
 	})
 
@@ -85,74 +82,69 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		nFastRequest := c.TotRequests - int(nSlowRequest)
 		defer func() {
 			doneSendingJobs <- struct{}{}
-
 		}()
-		sendJobs(ctx, FastRequest, nFastRequest, c.TimeUnit, c.FastRate, jobs)
+		sendJobs(ctx, FastRequest, nFastRequest, c.FastRate, requests)
 
 		return nil
 	})
 
 	buffers := NewPool(func() []byte { b := make([]byte, 4); return b })
 
-	for i := 0; i < c.Concurrency; i++ {
-		g.Go(func() error {
-			defer func() {
-				doneSendingResult <- struct{}{}
-			}()
-			var err error
-			for job := range jobs {
-				err = func() error {
-					start := time.Now()
+	g.Go(func() error {
+		wg := sync.WaitGroup{}
+		for request := range requests {
+			r := request
+			wg.Add(1)
+			go func() error {
+				defer wg.Done()
+				start := time.Now()
 
-					conn, err := conns.get()
+				conn, err := conns.get()
 
-					if err != nil {
-						return err
-					}
-
-					defer conns.put(conn)
-
-					g.Go(func() error {
-						select {
-						case <-ctx.Done():
-							conn.conn.SetDeadline(time.Now())
-						case <-terminationSignal:
-						}
-						return nil
-					})
-					buffer := buffers.Get()
-					defer buffers.Put(buffer)
-
-					binary.BigEndian.PutUint32(buffer, uint32(job))
-
-					_, err = conn.conn.Write(buffer)
-					if err != nil {
-						return err
-					}
-
-					var response Response
-					if err := json.NewDecoder(conn.conn).Decode(&response); err != nil {
-						return err
-					}
-
-					results <- requestResult{
-						Request:       job,
-						ResidenceTime: response.FinishedTs.Sub(response.AcceptedTs),
-						WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
-						RoundTripTime: time.Since(start),
-					}
-					return nil
-				}()
-				if errors.Is(err, os.ErrDeadlineExceeded) {
-					return nil
-				} else if err != nil {
-					log.Print(err)
+				if err != nil {
+					return err
 				}
-			}
+				defer conns.put(conn)
 
-			return nil
-		})
-	}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					select {
+					case <-ctx.Done():
+						conn.conn.SetDeadline(time.Now())
+					case <-terminationSignal:
+
+					}
+				}()
+				buffer := buffers.Get()
+				defer buffers.Put(buffer)
+
+				binary.BigEndian.PutUint32(buffer, uint32(r))
+
+				_, err = conn.conn.Write(buffer)
+				if err != nil {
+					return err
+				}
+				var response Response
+				if err := json.NewDecoder(conn.conn).Decode(&response); err != nil {
+					return err
+				}
+
+				results <- requestResult{
+					Request:       r,
+					ResidenceTime: response.FinishedTs.Sub(response.AcceptedTs),
+					WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
+					RoundTripTime: time.Since(start),
+				}
+				return nil
+
+			}()
+		}
+		wg.Wait()
+		doneSendingResult <- struct{}{}
+
+		return nil
+	})
 
 	benchResult := make(chan BenchResult)
 	defer close(benchResult)
@@ -198,7 +190,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 	g.Go(func() error {
 
-		defer close(jobs)
+		defer close(requests)
 		defer close(terminationSignal)
 		for i := 0; i < 2; i++ {
 			<-doneSendingJobs
@@ -210,9 +202,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 	g.Go(func() error {
 
 		defer close(results)
-		for i := 0; i < c.Concurrency; i++ {
-			<-doneSendingResult
-		}
+		<-doneSendingResult
 
 		return nil
 	})
@@ -221,9 +211,9 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 }
 
-func sendJobs(ctx context.Context, request Request, n int, timeUnit time.Duration, rate float64, jobs chan<- Request) {
+func sendJobs(ctx context.Context, request Request, n int, rate float64, jobs chan<- Request) {
 	exp := distuv.Exponential{
-		Rate: 1 / rate,
+		Rate: rate,
 	}
 	for i := 0; i < n; i += 1 {
 		select {
@@ -231,8 +221,9 @@ func sendJobs(ctx context.Context, request Request, n int, timeUnit time.Duratio
 			return
 		default:
 			n := exp.Rand()
+			d := n * float64(time.Second)
 			select {
-			case <-time.After(time.Duration(n) * timeUnit):
+			case <-time.After(time.Duration(d)):
 				jobs <- request
 			case <-ctx.Done():
 				return
