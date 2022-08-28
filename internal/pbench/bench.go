@@ -22,8 +22,8 @@ type requestResult struct {
 }
 
 type BenchResult struct {
-	FastLambda      float64
-	SlowLambda      float64
+	FastRate        float64
+	SlowRate        float64
 	TotRequests     int
 	SlowRequestLoad int
 	AverageSlowRt   float64
@@ -173,8 +173,8 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		}
 
 		benchResult <- BenchResult{
-			FastLambda:      c.FastRate,
-			SlowLambda:      c.SlowRate,
+			FastRate:        c.FastRate,
+			SlowRate:        c.SlowRate,
 			TotRequests:     c.TotRequests,
 			SlowRequestLoad: c.SlowRequestLoad,
 			AverageSlowRt:   stat.Mean(slowRt, nil),

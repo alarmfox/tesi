@@ -58,9 +58,6 @@ type block struct {
 	FastRate    float64 `json:"fast_rate"`
 	SlowPercent int     `json:"slow_percent"`
 }
-type jsonData struct {
-	Workload []block `json:"workload"`
-}
 
 func main() {
 	flag.Parse()
@@ -85,7 +82,7 @@ func run(c Config) error {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	benches, err := getBenchesFromFile(c.inputFile)
+	benches, err := readBenchesFromFile(c.inputFile)
 	if err != nil {
 		return err
 	}
@@ -141,8 +138,8 @@ func run(c Config) error {
 		for record := range records {
 			row := []string{
 				c.algorithm,
-				strings.Replace(fmt.Sprintf("%f", record.FastLambda), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.SlowLambda), ".", ",", 1),
+				fmt.Sprintf("%d", int(record.FastRate)),
+				fmt.Sprintf("%d", int(record.SlowRate)),
 				fmt.Sprintf("%d", record.TotRequests),
 				fmt.Sprintf("%d", record.SlowRequestLoad),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRt), ".", ",", 1),
@@ -163,12 +160,16 @@ func run(c Config) error {
 
 }
 
-func getBenchesFromFile(fname string) ([]block, error) {
+func readBenchesFromFile(fname string) ([]block, error) {
 	f, err := os.Open(fname)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+
+	type jsonData struct {
+		Workload []block `json:"workload"`
+	}
 
 	var workload jsonData
 	if err := json.NewDecoder(f).Decode(&workload); err != nil {
