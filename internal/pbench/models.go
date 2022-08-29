@@ -16,6 +16,7 @@ type Response struct {
 	AcceptedTs time.Time `json:"accepted_ts"`
 	RunningTs  time.Time `json:"running_ts"`
 	FinishedTs time.Time `json:"finished_ts"`
+	Memory     uint64    `json:"memory"`
 }
 
 type Job struct {

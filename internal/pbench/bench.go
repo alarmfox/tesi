@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"math"
+	"net"
 	"sync"
 	"time"
 
@@ -19,19 +20,22 @@ type requestResult struct {
 	ResidenceTime time.Duration
 	WaitingTime   time.Duration
 	RoundTripTime time.Duration
+	Memory        uint64
 }
 
 type BenchResult struct {
-	FastRate        float64
-	SlowRate        float64
-	TotRequests     int
-	SlowRequestLoad int
-	AverageSlowRt   float64
-	AverageSlowWt   float64
-	AverageSlowRtt  float64
-	AverageFastRt   float64
-	AverageFastWt   float64
-	AverageFastRtt  float64
+	FastRate                float64
+	SlowRate                float64
+	TotRequests             int
+	SlowRequestLoad         int
+	AverageSlowRt           float64
+	AverageSlowWt           float64
+	AverageSlowRtt          float64
+	AverageFastRt           float64
+	AverageFastWt           float64
+	AverageFastRtt          float64
+	RequestsPerSecond       float64
+	AverageMemoryConsuption float64
 }
 
 type BenchConfig struct {
@@ -41,22 +45,9 @@ type BenchConfig struct {
 	SlowRequestLoad int
 	SlowRate        float64
 	FastRate        float64
-	MaxIdleConns    int
-	MaxOpenConns    int
 }
 
 func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
-
-	conns, err := createTcpConnPool(&tcpConfig{
-		Address:      c.ServerAddress,
-		MaxIdleConns: c.MaxIdleConns,
-		MaxOpenConn:  c.MaxOpenConns,
-	})
-
-	if err != nil {
-		return BenchResult{}, err
-	}
-	defer conns.close()
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -95,23 +86,30 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		for request := range requests {
 			r := request
 			wg.Add(1)
-			go func() error {
+			go func() {
 				defer wg.Done()
 				start := time.Now()
 
-				conn, err := conns.get()
+				// conn, err := conns.get()
 
+				// if err != nil {
+				// 	return err
+				// }
+				// defer conns.put(conn)
+
+				conn, err := net.Dial("tcp4", c.ServerAddress)
 				if err != nil {
-					return err
+					log.Print(err)
+					return
 				}
-				defer conns.put(conn)
+				defer conn.Close()
 
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					select {
 					case <-ctx.Done():
-						conn.conn.SetDeadline(time.Now())
+						conn.SetDeadline(time.Now())
 					case <-terminationSignal:
 
 					}
@@ -121,13 +119,15 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 
 				binary.BigEndian.PutUint32(buffer, uint32(r))
 
-				_, err = conn.conn.Write(buffer)
+				_, err = conn.Write(buffer)
 				if err != nil {
-					return err
+					log.Print(err)
+					return
 				}
 				var response Response
-				if err := json.NewDecoder(conn.conn).Decode(&response); err != nil {
-					return err
+				if err := json.NewDecoder(conn).Decode(&response); err != nil {
+					log.Print(err)
+					return
 				}
 
 				results <- requestResult{
@@ -135,8 +135,8 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 					ResidenceTime: response.FinishedTs.Sub(response.AcceptedTs),
 					WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
 					RoundTripTime: time.Since(start),
+					Memory:        response.Memory,
 				}
-				return nil
 
 			}()
 		}
@@ -156,7 +156,10 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		var fastRt []float64 = make([]float64, 0)
 		var fastWt []float64 = make([]float64, 0)
 		var fastRtt []float64 = make([]float64, 0)
+		var memoryAllocation []float64 = make([]float64, 0)
 
+		start := time.Now()
+		n := 0.0
 		for result := range results {
 			switch result.Request {
 			case SlowRequest:
@@ -170,19 +173,25 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			default:
 				log.Printf("unknown request type: %d", result.Request)
 			}
+			memoryAllocation = append(memoryAllocation, float64(result.Memory))
+			n += 1
 		}
+		elapsed := time.Since(start)
+		rps := n / elapsed.Seconds()
 
 		benchResult <- BenchResult{
-			FastRate:        c.FastRate,
-			SlowRate:        c.SlowRate,
-			TotRequests:     c.TotRequests,
-			SlowRequestLoad: c.SlowRequestLoad,
-			AverageSlowRt:   stat.Mean(slowRt, nil),
-			AverageSlowWt:   stat.Mean(slowWt, nil),
-			AverageSlowRtt:  stat.Mean(slowRtt, nil),
-			AverageFastRt:   stat.Mean(fastRt, nil),
-			AverageFastWt:   stat.Mean(fastWt, nil),
-			AverageFastRtt:  stat.Mean(fastRtt, nil),
+			FastRate:                c.FastRate,
+			SlowRate:                c.SlowRate,
+			TotRequests:             c.TotRequests,
+			SlowRequestLoad:         c.SlowRequestLoad,
+			AverageSlowRt:           stat.Mean(slowRt, nil),
+			AverageSlowWt:           stat.Mean(slowWt, nil),
+			AverageSlowRtt:          stat.Mean(slowRtt, nil),
+			AverageFastRt:           stat.Mean(fastRt, nil),
+			AverageFastWt:           stat.Mean(fastWt, nil),
+			AverageFastRtt:          stat.Mean(fastRtt, nil),
+			AverageMemoryConsuption: stat.Mean(memoryAllocation, nil),
+			RequestsPerSecond:       rps,
 		}
 
 		return nil

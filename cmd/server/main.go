@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -84,14 +85,14 @@ func run(c Config) error {
 		}
 	})
 
-	var server *pbench.Server
 	g.Go(func() error {
-		server = pbench.NewServer(hiPrio, loPrio, isDRR)
+		server := pbench.NewServer(hiPrio, loPrio, isDRR)
 		return server.Start(ctx, c.listenAddress)
 	})
 
 	g.Go(func() error {
 		buffer := pbench.NewBuffer(c.slowTime)
+		var memory runtime.MemStats
 		for job := range jobs {
 			job.Response.RunningTs = time.Now()
 			switch job.Request {
@@ -100,6 +101,8 @@ func run(c Config) error {
 			case pbench.FastRequest:
 				buffer.Fast()
 			}
+			runtime.ReadMemStats(&memory)
+			job.Response.Memory = memory.Sys
 			job.Response.FinishedTs = time.Now()
 			err := json.NewEncoder(job.Client).Encode(job.Response)
 			if err != nil {

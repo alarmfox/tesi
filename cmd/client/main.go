@@ -19,12 +19,10 @@ import (
 )
 
 var (
-	serverAddress      = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
-	scheduler          = flag.String("scheduler", "", "Scheduling algorithm used by the server")
-	inputFile          = flag.String("input-file", "workload.json", "File path containing workload")
-	outputFile         = flag.String("output-file", "", "File path to write result")
-	maxIdleConnections = flag.Int("max-idle-connections", 256, "Number of idle connection to keep open to reuse")
-	maxOpenConnections = flag.Int("max-open-connections", 256, "Max number of connection opened at same time")
+	serverAddress = flag.String("server-address", "127.0.0.1:8000", "Address for TCP server")
+	scheduler     = flag.String("scheduler", "", "Scheduling algorithm used by the server")
+	inputFile     = flag.String("input-file", "workload.json", "File path containing workload")
+	outputFile    = flag.String("output-file", "", "File path to write result")
 )
 
 var (
@@ -33,6 +31,7 @@ var (
 		"fast_rate",
 		"slow_rate",
 		"tot_requests",
+		"requests_per_second",
 		"slow_percent",
 		"average_slow_rt",
 		"average_slow_wt",
@@ -40,16 +39,15 @@ var (
 		"average_fast_rt",
 		"average_fast_wt",
 		"average_fast_rtt",
+		"average_memory_allocation",
 	}
 )
 
 type Config struct {
-	algorithm         string
-	addr              string
-	outputFile        string
-	inputFile         string
-	maxIdleConns      int
-	maxOpenConnection int
+	algorithm  string
+	addr       string
+	outputFile string
+	inputFile  string
 }
 
 type block struct {
@@ -63,12 +61,10 @@ func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:              *serverAddress,
-		outputFile:        *outputFile,
-		algorithm:         *scheduler,
-		inputFile:         *inputFile,
-		maxIdleConns:      *maxIdleConnections,
-		maxOpenConnection: *maxOpenConnections,
+		addr:       *serverAddress,
+		outputFile: *outputFile,
+		algorithm:  *scheduler,
+		inputFile:  *inputFile,
 	}
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
@@ -101,8 +97,6 @@ func run(c Config) error {
 				SlowRequestLoad: benches[i].SlowPercent,
 				SlowRate:        benches[i].SlowRate,
 				FastRate:        benches[i].FastRate,
-				MaxIdleConns:    c.maxIdleConns,
-				MaxOpenConns:    c.maxOpenConnection,
 			}
 			r, err = pbench.Bench(ctx, cfg)
 			if err != nil {
@@ -141,6 +135,7 @@ func run(c Config) error {
 				fmt.Sprintf("%d", int(record.FastRate)),
 				fmt.Sprintf("%d", int(record.SlowRate)),
 				fmt.Sprintf("%d", record.TotRequests),
+				strings.Replace(fmt.Sprintf("%f", record.RequestsPerSecond), ".", ",", 1),
 				fmt.Sprintf("%d", record.SlowRequestLoad),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowRt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageSlowWt), ".", ",", 1),
@@ -148,6 +143,7 @@ func run(c Config) error {
 				strings.Replace(fmt.Sprintf("%f", record.AverageFastRt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageFastWt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageFastRtt), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageMemoryConsuption), ".", ",", 1),
 			}
 			if err := csvWriter.Write(row); err != nil {
 				log.Print(err)
