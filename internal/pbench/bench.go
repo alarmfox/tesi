@@ -21,6 +21,7 @@ type requestResult struct {
 	WaitingTime   time.Duration
 	RoundTripTime time.Duration
 	Memory        uint64
+	JobNumber     int
 }
 
 type BenchResult struct {
@@ -36,6 +37,7 @@ type BenchResult struct {
 	AverageFastRtt          float64
 	RequestsPerSecond       float64
 	AverageMemoryConsuption float64
+	AverageJobNumber        float64
 }
 
 type BenchConfig struct {
@@ -90,13 +92,6 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 				defer wg.Done()
 				start := time.Now()
 
-				// conn, err := conns.get()
-
-				// if err != nil {
-				// 	return err
-				// }
-				// defer conns.put(conn)
-
 				conn, err := net.Dial("tcp4", c.ServerAddress)
 				if err != nil {
 					log.Print(err)
@@ -136,6 +131,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 					WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
 					RoundTripTime: time.Since(start),
 					Memory:        response.Memory,
+					JobNumber:     response.JobsNumber,
 				}
 
 			}()
@@ -157,6 +153,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		var fastWt []float64 = make([]float64, 0)
 		var fastRtt []float64 = make([]float64, 0)
 		var memoryAllocation []float64 = make([]float64, 0)
+		var jobNumber []float64 = make([]float64, 0)
 
 		start := time.Now()
 		n := 0.0
@@ -174,6 +171,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 				log.Printf("unknown request type: %d", result.Request)
 			}
 			memoryAllocation = append(memoryAllocation, float64(result.Memory))
+			jobNumber = append(jobNumber, float64(result.JobNumber))
 			n += 1
 		}
 		elapsed := time.Since(start)
@@ -191,6 +189,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			AverageFastWt:           stat.Mean(fastWt, nil),
 			AverageFastRtt:          stat.Mean(fastRtt, nil),
 			AverageMemoryConsuption: stat.Mean(memoryAllocation, nil),
+			AverageJobNumber:        stat.Mean(jobNumber, nil),
 			RequestsPerSecond:       rps,
 		}
 

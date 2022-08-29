@@ -40,6 +40,7 @@ var (
 		"average_fast_wt",
 		"average_fast_rtt",
 		"average_memory_allocation",
+		"average_job_number",
 	}
 )
 
@@ -144,6 +145,7 @@ func run(c Config) error {
 				strings.Replace(fmt.Sprintf("%f", record.AverageFastWt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageFastRtt), ".", ",", 1),
 				strings.Replace(fmt.Sprintf("%f", record.AverageMemoryConsuption), ".", ",", 1),
+				strings.Replace(fmt.Sprintf("%f", record.AverageJobNumber), ".", ",", 1),
 			}
 			if err := csvWriter.Write(row); err != nil {
 				log.Print(err)

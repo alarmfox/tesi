@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -57,13 +58,11 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 			log.Print(err)
 			continue
 		}
+
 		g.Go(func() error {
-			<-ctx.Done()
-			client.Close()
-			return nil
-		})
-		g.Go(func() error {
-			s.handleConnection(client)
+			if err := s.handleConnection(client); parseErr(err) != nil {
+				log.Print(err)
+			}
 			return nil
 		})
 
@@ -71,7 +70,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	return g.Wait()
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) error {
 
 	defer conn.Close()
 
@@ -82,14 +81,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 		n, err := conn.Read(buffer)
 
-		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) {
-			return
-		} else if err != nil {
-			log.Printf("error from %s: %v", conn.RemoteAddr(), err)
-			continue
+		if err != nil {
+			return err
 		} else if n != 4 {
-			log.Printf("cannot read requests type")
-			continue
+			return fmt.Errorf("cannot read request type")
 		}
 
 		r := binary.BigEndian.Uint32(buffer)
@@ -98,6 +93,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			Request: Request(r),
 			Response: Response{
 				AcceptedTs: time.Now(),
+				JobsNumber: runtime.NumGoroutine() - 3,
 			},
 			Client: conn,
 		})
@@ -120,6 +116,13 @@ func (s *Server) schedule(j Job) error {
 		}
 	} else {
 		s.highPrio <- j
+	}
+	return nil
+}
+
+func parseErr(err error) error {
+	if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) && errors.Is(err, syscall.ECONNRESET) {
+		return err
 	}
 	return nil
 }
