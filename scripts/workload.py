@@ -6,11 +6,7 @@ import json
 parser = argparse.ArgumentParser(description="Workload generator")
 
 parser.add_argument(
-    "--start-requests", type=int, default=100, help="Start number of requests to send"
-)
-
-parser.add_argument(
-    "--stop-requests", type=int, default=10000, help="Stop number of requests to send"
+    "--tot-requests", type=int, default=5000, help="Number of requests to send"
 )
 
 parser.add_argument(
@@ -62,7 +58,6 @@ parser.add_argument(
 )
 
 header = [
-    "tot_requests",
     "slow_rate",
     "fast_rate",
     "slow_percent",
@@ -70,8 +65,7 @@ header = [
 
 
 def run(
-    start_requests: int,
-    stop_requests: int,
+    requests: int,
     block_size: int,
     start_job_rate: int,
     stop_job_rate: int,
@@ -79,10 +73,6 @@ def run(
     stop_slow_load: int,
     slow_load_increment: int,
 ) -> None:
-
-    n_requests = np.geomspace(
-        start=start_requests, stop=stop_requests, num=block_size, dtype=int
-    )
 
     rates = np.geomspace(
         start=start_job_rate,
@@ -100,14 +90,16 @@ def run(
 
     workload = list(
         itertools.product(
-            n_requests.tolist(),
-            [x for x in rates.tolist()],
-            [x for x in rates.tolist()],
+            rates.tolist(),
+            rates.tolist(),
             slow_percent.tolist(),
         )
     )
 
     workload = [dict(zip(header, sublst)) for sublst in workload]
+
+    workload =  [{**block, 'tot_requests':requests} 
+          for block in workload]
 
     with open(args.output_file, "w") as f:
         json.dump({"workload": workload}, f)
@@ -116,8 +108,7 @@ def run(
 if __name__ == "__main__":
     args = parser.parse_args()
     run(
-        args.start_requests,
-        args.stop_requests,
+        args.tot_requests,
         args.block_size,
         args.start_job_rate,
         args.stop_job_rate,

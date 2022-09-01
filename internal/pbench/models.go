@@ -17,7 +17,9 @@ type Response struct {
 	RunningTs  time.Time `json:"running_ts"`
 	FinishedTs time.Time `json:"finished_ts"`
 	Memory     uint64    `json:"memory"`
-	JobsNumber int       `json:"jobs_number"`
+	Jobs       int       `json:"jobs_number"`
+	CPU        float64   `json:"cpu"`
+	Alg        string    `json:"string"`
 }
 
 type Job struct {

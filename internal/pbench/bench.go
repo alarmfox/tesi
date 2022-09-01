@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat"
 	"gonum.org/v1/gonum/stat/distuv"
 )
@@ -24,20 +25,25 @@ type requestResult struct {
 	JobNumber     int
 }
 
+type benchResult struct {
+	Average float64
+	DevStd  float64
+	Var     float64
+	Min     float64
+	Max     float64
+}
+
 type BenchResult struct {
-	FastRate                float64
-	SlowRate                float64
-	TotRequests             int
-	SlowRequestLoad         int
-	AverageSlowRt           float64
-	AverageSlowWt           float64
-	AverageSlowRtt          float64
-	AverageFastRt           float64
-	AverageFastWt           float64
-	AverageFastRtt          float64
-	RequestsPerSecond       float64
-	AverageMemoryConsuption float64
-	AverageJobNumber        float64
+	SlowRt  benchResult
+	SlowWt  benchResult
+	SlowRtt benchResult
+	FastRt  benchResult
+	FastWt  benchResult
+	FastRtt benchResult
+	Memory  benchResult
+	Jobs    benchResult
+	CPU     benchResult
+	Rps     float64
 }
 
 type BenchConfig struct {
@@ -71,8 +77,8 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		return nil
 	})
 
+	nFastRequest := c.TotRequests - int(nSlowRequest)
 	g.Go(func() error {
-		nFastRequest := c.TotRequests - int(nSlowRequest)
 		defer func() {
 			doneSendingJobs <- struct{}{}
 		}()
@@ -131,7 +137,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 					WaitingTime:   response.RunningTs.Sub(response.AcceptedTs),
 					RoundTripTime: time.Since(start),
 					Memory:        response.Memory,
-					JobNumber:     response.JobsNumber,
+					JobNumber:     response.Jobs,
 				}
 
 			}()
@@ -142,55 +148,112 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		return nil
 	})
 
-	benchResult := make(chan BenchResult)
-	defer close(benchResult)
+	toReturn := make(chan BenchResult)
+	defer close(toReturn)
 	g.Go(func() error {
 
-		var slowRt []float64 = make([]float64, 0)
-		var slowWt []float64 = make([]float64, 0)
-		var slowRtt []float64 = make([]float64, 0)
-		var fastRt []float64 = make([]float64, 0)
-		var fastWt []float64 = make([]float64, 0)
-		var fastRtt []float64 = make([]float64, 0)
-		var memoryAllocation []float64 = make([]float64, 0)
-		var jobNumber []float64 = make([]float64, 0)
+		var slowRt []float64 = make([]float64, int(nSlowRequest))
+		var slowWt []float64 = make([]float64, int(nSlowRequest))
+		var slowRtt []float64 = make([]float64, int(nSlowRequest))
+		var fastRt []float64 = make([]float64, nFastRequest)
+		var fastWt []float64 = make([]float64, nFastRequest)
+		var fastRtt []float64 = make([]float64, nFastRequest)
+		var memory []float64 = make([]float64, c.TotRequests)
+		var jobs []float64 = make([]float64, c.TotRequests)
+		var cpu []float64 = make([]float64, c.TotRequests)
 
 		start := time.Now()
-		n := 0.0
+		n := 0
+		idxSlow := 0
+		idxFast := 0
 		for result := range results {
 			switch result.Request {
 			case SlowRequest:
-				slowRt = append(slowRt, float64(result.ResidenceTime))
-				slowWt = append(slowWt, float64(result.WaitingTime))
-				slowRtt = append(slowRtt, float64(result.RoundTripTime))
+				slowRt[idxSlow] = float64(result.ResidenceTime)
+				slowWt[idxSlow] = float64(result.WaitingTime)
+				slowRtt[idxSlow] = float64(result.RoundTripTime)
+				idxSlow += 1
 			case FastRequest:
-				fastRt = append(fastRt, float64(result.ResidenceTime))
-				fastWt = append(fastWt, float64(result.WaitingTime))
-				fastRtt = append(fastRtt, float64(result.RoundTripTime))
+				fastRt[idxFast] = float64(result.ResidenceTime)
+				fastWt[idxFast] = float64(result.WaitingTime)
+				fastRtt[idxFast] = float64(result.RoundTripTime)
+				idxFast += 1
 			default:
 				log.Printf("unknown request type: %d", result.Request)
 			}
-			memoryAllocation = append(memoryAllocation, float64(result.Memory))
-			jobNumber = append(jobNumber, float64(result.JobNumber))
+			memory[n] = float64(result.Memory)
+			jobs[n] = float64(result.JobNumber)
+			cpu[n] = float64(result.JobNumber)
 			n += 1
 		}
 		elapsed := time.Since(start)
-		rps := n / elapsed.Seconds()
+		rps := float64(n) / elapsed.Seconds()
 
-		benchResult <- BenchResult{
-			FastRate:                c.FastRate,
-			SlowRate:                c.SlowRate,
-			TotRequests:             c.TotRequests,
-			SlowRequestLoad:         c.SlowRequestLoad,
-			AverageSlowRt:           stat.Mean(slowRt, nil),
-			AverageSlowWt:           stat.Mean(slowWt, nil),
-			AverageSlowRtt:          stat.Mean(slowRtt, nil),
-			AverageFastRt:           stat.Mean(fastRt, nil),
-			AverageFastWt:           stat.Mean(fastWt, nil),
-			AverageFastRtt:          stat.Mean(fastRtt, nil),
-			AverageMemoryConsuption: stat.Mean(memoryAllocation, nil),
-			AverageJobNumber:        stat.Mean(jobNumber, nil),
-			RequestsPerSecond:       rps,
+		toReturn <- BenchResult{
+			Rps: rps,
+			SlowRt: benchResult{
+				Average: stat.Mean(slowRt, nil),
+				DevStd:  stat.StdDev(slowRt, nil),
+				Var:     stat.Variance(slowRt, nil),
+				Min:     floats.Min(slowRt),
+				Max:     floats.Max(slowRt),
+			},
+			SlowWt: benchResult{
+				Average: stat.Mean(slowWt, nil),
+				DevStd:  stat.StdDev(slowWt, nil),
+				Var:     stat.Variance(slowWt, nil),
+				Min:     floats.Min(slowWt),
+				Max:     floats.Max(slowWt),
+			},
+			SlowRtt: benchResult{
+				Average: stat.Mean(slowRtt, nil),
+				DevStd:  stat.StdDev(slowRtt, nil),
+				Var:     stat.Variance(slowRtt, nil),
+				Min:     floats.Min(slowRtt),
+				Max:     floats.Max(slowRtt),
+			},
+			FastRt: benchResult{
+				Average: stat.Mean(fastRt, nil),
+				DevStd:  stat.StdDev(fastRt, nil),
+				Var:     stat.Variance(fastRt, nil),
+				Min:     floats.Min(fastRt),
+				Max:     floats.Max(fastRt),
+			},
+			FastWt: benchResult{
+				Average: stat.Mean(fastWt, nil),
+				DevStd:  stat.StdDev(fastWt, nil),
+				Var:     stat.Variance(fastWt, nil),
+				Min:     floats.Min(fastWt),
+				Max:     floats.Max(fastWt),
+			},
+			FastRtt: benchResult{
+				Average: stat.Mean(fastRtt, nil),
+				DevStd:  stat.StdDev(fastRtt, nil),
+				Var:     stat.Variance(fastRtt, nil),
+				Min:     floats.Min(fastRtt),
+				Max:     floats.Max(fastRtt),
+			},
+			Memory: benchResult{
+				Average: stat.Mean(memory, nil),
+				DevStd:  stat.StdDev(memory, nil),
+				Var:     stat.Variance(memory, nil),
+				Min:     floats.Min(memory),
+				Max:     floats.Max(memory),
+			},
+			Jobs: benchResult{
+				Average: stat.Mean(jobs, nil),
+				DevStd:  stat.StdDev(jobs, nil),
+				Var:     stat.Variance(jobs, nil),
+				Min:     floats.Min(jobs),
+				Max:     floats.Max(jobs),
+			},
+			CPU: benchResult{
+				Average: stat.Mean(cpu, nil),
+				DevStd:  stat.StdDev(cpu, nil),
+				Var:     stat.Variance(cpu, nil),
+				Min:     floats.Min(cpu),
+				Max:     floats.Max(cpu),
+			},
 		}
 
 		return nil
@@ -215,7 +278,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 		return nil
 	})
 
-	return <-benchResult, g.Wait()
+	return <-toReturn, g.Wait()
 
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alarmfox/tesi/internal/pbench"
+	"github.com/shirou/gopsutil/load"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -104,8 +105,14 @@ func run(c Config) error {
 			runtime.ReadMemStats(&memory)
 			job.Response.Memory = memory.Sys
 			job.Response.FinishedTs = time.Now()
-			err := json.NewEncoder(job.Client).Encode(job.Response)
-			if err != nil {
+
+			if cpuAvg, err := load.Avg(); err != nil {
+				log.Print(err)
+			} else {
+				job.Response.CPU = cpuAvg.Load1
+			}
+
+			if err := json.NewEncoder(job.Client).Encode(job.Response); err != nil {
 				log.Printf("response: %v", err)
 			}
 

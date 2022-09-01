@@ -93,7 +93,7 @@ func (s *Server) handleConnection(conn net.Conn) error {
 			Request: Request(r),
 			Response: Response{
 				AcceptedTs: time.Now(),
-				JobsNumber: runtime.NumGoroutine() - 3,
+				Jobs:       runtime.NumGoroutine() - 4,
 			},
 			Client: conn,
 		})
