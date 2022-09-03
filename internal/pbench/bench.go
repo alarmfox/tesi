@@ -27,8 +27,6 @@ type requestResult struct {
 
 type benchResult struct {
 	Average float64
-	DevStd  float64
-	Var     float64
 	Min     float64
 	Max     float64
 }
@@ -193,64 +191,46 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			Rps: rps,
 			SlowRt: benchResult{
 				Average: stat.Mean(slowRt, nil),
-				DevStd:  stat.StdDev(slowRt, nil),
-				Var:     stat.Variance(slowRt, nil),
 				Min:     floats.Min(slowRt),
 				Max:     floats.Max(slowRt),
 			},
 			SlowWt: benchResult{
 				Average: stat.Mean(slowWt, nil),
-				DevStd:  stat.StdDev(slowWt, nil),
-				Var:     stat.Variance(slowWt, nil),
 				Min:     floats.Min(slowWt),
 				Max:     floats.Max(slowWt),
 			},
 			SlowRtt: benchResult{
 				Average: stat.Mean(slowRtt, nil),
-				DevStd:  stat.StdDev(slowRtt, nil),
-				Var:     stat.Variance(slowRtt, nil),
 				Min:     floats.Min(slowRtt),
 				Max:     floats.Max(slowRtt),
 			},
 			FastRt: benchResult{
 				Average: stat.Mean(fastRt, nil),
-				DevStd:  stat.StdDev(fastRt, nil),
-				Var:     stat.Variance(fastRt, nil),
 				Min:     floats.Min(fastRt),
 				Max:     floats.Max(fastRt),
 			},
 			FastWt: benchResult{
 				Average: stat.Mean(fastWt, nil),
-				DevStd:  stat.StdDev(fastWt, nil),
-				Var:     stat.Variance(fastWt, nil),
 				Min:     floats.Min(fastWt),
 				Max:     floats.Max(fastWt),
 			},
 			FastRtt: benchResult{
 				Average: stat.Mean(fastRtt, nil),
-				DevStd:  stat.StdDev(fastRtt, nil),
-				Var:     stat.Variance(fastRtt, nil),
 				Min:     floats.Min(fastRtt),
 				Max:     floats.Max(fastRtt),
 			},
 			Memory: benchResult{
 				Average: stat.Mean(memory, nil),
-				DevStd:  stat.StdDev(memory, nil),
-				Var:     stat.Variance(memory, nil),
 				Min:     floats.Min(memory),
 				Max:     floats.Max(memory),
 			},
 			Jobs: benchResult{
 				Average: stat.Mean(jobs, nil),
-				DevStd:  stat.StdDev(jobs, nil),
-				Var:     stat.Variance(jobs, nil),
 				Min:     floats.Min(jobs),
 				Max:     floats.Max(jobs),
 			},
 			CPU: benchResult{
 				Average: stat.Mean(cpu, nil),
-				DevStd:  stat.StdDev(cpu, nil),
-				Var:     stat.Variance(cpu, nil),
 				Min:     floats.Min(cpu),
 				Max:     floats.Max(cpu),
 			},
