@@ -11,7 +11,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/alarmfox/tesi/internal/pbench"
@@ -33,59 +32,42 @@ var (
 		"tot_requests",
 		"slow_load",
 		"rps",
+
 		"avg_slow_rt",
 		"min_slow_rt",
 		"max_slow_rt",
-		"devstd_slow_rt",
-		"var_slow_rt",
 
 		"avg_slow_wt",
 		"min_slow_wt",
 		"max_slow_wt",
-		"devstd_slow_wt",
-		"var_slow_wt",
 
 		"avg_slow_rtt",
 		"min_slow_rtt",
 		"max_slow_rtt",
-		"devstd_slow_rtt",
-		"var_slow_rtt",
 
 		"avg_fast_rt",
 		"min_fast_rt",
 		"max_fast_rt",
-		"devstd_fast_rt",
-		"var_fast_rt",
 
 		"avg_fast_wt",
 		"min_fast_wt",
 		"max_fast_wt",
-		"devstd_fast_wt",
-		"var_fast_wt",
 
 		"avg_fast_rtt",
 		"min_fast_rtt",
 		"max_fast_rtt",
-		"devstd_fast_rtt",
-		"var_fast_rtt",
 
 		"avg_memory",
 		"min_memory",
 		"max_memory",
-		"devstd_memory",
-		"var_memory",
 
 		"avg_jobs",
 		"min_jobs",
 		"max_jobs",
-		"devstd_jobs",
-		"var_jobs",
 
 		"avg_cpu",
 		"min_cpu",
 		"max_cpu",
-		"devstd_cpu",
-		"var_cpu",
 	}
 )
 
@@ -190,59 +172,42 @@ func run(c Config) error {
 				fmt.Sprintf("%d", record.request.TotRequests),
 				fmt.Sprintf("%d", record.request.SlowRequestLoad),
 				fmt.Sprintf("%f", record.result.Rps),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.Var), ".", ",", 1),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowWt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowWt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowWt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowWt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRt.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.SlowRt.Average),
+				fmt.Sprintf("%f", record.result.SlowRt.Min),
+				fmt.Sprintf("%f", record.result.SlowRt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRtt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRtt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRtt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRtt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.SlowRtt.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.SlowWt.Average),
+				fmt.Sprintf("%f", record.result.SlowWt.Min),
+				fmt.Sprintf("%f", record.result.SlowWt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.SlowRtt.Average),
+				fmt.Sprintf("%f", record.result.SlowRtt.Min),
+				fmt.Sprintf("%f", record.result.SlowRtt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.FastWt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastWt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastWt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastWt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRt.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.FastRt.Average),
+				fmt.Sprintf("%f", record.result.FastRt.Min),
+				fmt.Sprintf("%f", record.result.FastRt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRtt.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRtt.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRtt.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRtt.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.FastRtt.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.FastWt.Average),
+				fmt.Sprintf("%f", record.result.FastWt.Min),
+				fmt.Sprintf("%f", record.result.FastWt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.Memory.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Memory.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Memory.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Memory.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Memory.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.FastRtt.Average),
+				fmt.Sprintf("%f", record.result.FastRtt.Min),
+				fmt.Sprintf("%f", record.result.FastRtt.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.Jobs.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Jobs.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Jobs.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Jobs.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.Jobs.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.Memory.Average),
+				fmt.Sprintf("%f", record.result.Memory.Min),
+				fmt.Sprintf("%f", record.result.Memory.Max),
 
-				strings.Replace(fmt.Sprintf("%f", record.result.CPU.Average), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.CPU.Min), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.CPU.Max), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.CPU.DevStd), ".", ",", 1),
-				strings.Replace(fmt.Sprintf("%f", record.result.CPU.Var), ".", ",", 1),
+				fmt.Sprintf("%f", record.result.Jobs.Average),
+				fmt.Sprintf("%f", record.result.Jobs.Min),
+				fmt.Sprintf("%f", record.result.Jobs.Max),
+
+				fmt.Sprintf("%f", record.result.CPU.Average),
+				fmt.Sprintf("%f", record.result.CPU.Min),
+				fmt.Sprintf("%f", record.result.CPU.Max),
 			}
 			if err := csvWriter.Write(row); err != nil {
 				log.Print(err)
