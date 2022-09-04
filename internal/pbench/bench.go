@@ -23,6 +23,7 @@ type requestResult struct {
 	RoundTripTime time.Duration
 	Memory        uint64
 	JobNumber     int
+	CPU           float64
 }
 
 type benchResult struct {
@@ -136,6 +137,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 					RoundTripTime: time.Since(start),
 					Memory:        response.Memory,
 					JobNumber:     response.Jobs,
+					CPU:           response.CPU,
 				}
 
 			}()
@@ -181,7 +183,7 @@ func Bench(ctx context.Context, c BenchConfig) (BenchResult, error) {
 			}
 			memory[n] = float64(result.Memory)
 			jobs[n] = float64(result.JobNumber)
-			cpu[n] = float64(result.JobNumber)
+			cpu[n] = float64(result.CPU)
 			n += 1
 		}
 		elapsed := time.Since(start)
