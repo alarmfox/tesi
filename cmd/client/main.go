@@ -22,6 +22,7 @@ var (
 	scheduler     = flag.String("scheduler", "", "Scheduling algorithm used by the server")
 	inputFile     = flag.String("input-file", "workload.json", "File path containing workload")
 	outputFile    = flag.String("output-file", "", "File path to write result")
+	totalRequests = flag.Int("total-request", 5000, "Number of requests to send per bench")
 )
 
 var (
@@ -72,14 +73,14 @@ var (
 )
 
 type Config struct {
-	algorithm  string
-	addr       string
-	outputFile string
-	inputFile  string
+	algorithm     string
+	addr          string
+	outputFile    string
+	inputFile     string
+	totalRequests int
 }
 
 type block struct {
-	TotRequests int     `json:"tot_requests"`
 	SlowRate    float64 `json:"slow_rate"`
 	FastRate    float64 `json:"fast_rate"`
 	SlowPercent int     `json:"slow_percent"`
@@ -89,10 +90,11 @@ func main() {
 	flag.Parse()
 
 	c := Config{
-		addr:       *serverAddress,
-		outputFile: *outputFile,
-		algorithm:  *scheduler,
-		inputFile:  *inputFile,
+		addr:          *serverAddress,
+		outputFile:    *outputFile,
+		algorithm:     *scheduler,
+		inputFile:     *inputFile,
+		totalRequests: *totalRequests,
 	}
 	if err := run(c); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
@@ -125,7 +127,7 @@ func run(c Config) error {
 			cfg := pbench.BenchConfig{
 				Algorithm:       c.algorithm,
 				ServerAddress:   c.addr,
-				TotRequests:     benches[i].TotRequests,
+				TotRequests:     c.totalRequests,
 				SlowRequestLoad: benches[i].SlowPercent,
 				SlowRate:        benches[i].SlowRate,
 				FastRate:        benches[i].FastRate,
