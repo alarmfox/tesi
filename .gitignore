@@ -20,3 +20,4 @@ results
 *.csv
 
 workload.json
+.ipynb_checkpoints
